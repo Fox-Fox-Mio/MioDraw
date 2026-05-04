@@ -1,13 +1,14 @@
 <div align="center">
 
-# 🎨 MioDraw
-### 你的私人本地 AI 绘图与灵感优化工作站
+<img src="./assets/logo.png" alt="MioDraw Logo"/>
+
+### MioDraw：你的私人 AI 绘图与灵感优化本地工作站
 
 一款致力于极简、高效的使用API生图模式为主的 AI 绘图与提示词优化本地工作站
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Release](https://img.shields.io/github/v/release/Fox-Fox-Mio/MioDraw)](https://github.com/Fox-Fox-Mio/MioDraw/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#)
+[![Platform](https://img.shields.io/badge/platform-Windows)](#)
 [![Downloads](https://img.shields.io/github/downloads/Fox-Fox-Mio/MioDraw/total)](https://github.com/Fox-Fox-Mio/MioDraw/releases)
 
 [**直接下载 (Releases)**](https://github.com/Fox-Fox-Mio/MioDraw/releases) · [**使用说明文档**](#) · [**报告 Bug**](https://github.com/Fox-Fox-Mio/MioDraw/issues)
@@ -69,32 +70,49 @@
 ### 开发者 (本地编译)
 如果您想亲自修改代码或构建属于自己的版本：
 
-# 1. 克隆仓库
+#### 1. 克隆仓库
 git clone https://github.com/Fox-Fox-Mio/MioDraw.git
 
-# 2. 进入目录
+#### 2. 进入目录
 cd MioDraw
 
-# 3. 安装依赖 (推荐使用 npm 镜像加速)
+#### 3. 安装依赖 (推荐使用 npm 镜像加速)
 npm install
 
-# 4. 下载本地超分引擎 (必做)
-# 请前往 Real-ESRGAN 官方下载 Windows Vulkan 版本，并将其放置于 resources/upscaler/ 目录下。
-请确保目录结构为：
-miodraw
- |
- |--resources
- |   |-upscaler
- |      |-models  
- |         |-realesr-animevideov3-x2.bin
- |         |-……（其他模型文件）
- |--src
- |_ ……
+#### 4. 下载本地超分引擎并确认项目结构 (必做)
+### 请前往 Real-ESRGAN 官方下载 Windows Vulkan 版本，并将其放置于 resources/upscaler/ 目录下。
 
-# 5. 启动开发环境
+项目目录结构要求 (Project Structure)
+
+miodraw/
+ ├── resources/
+ │   └── upscaler/
+ │       ├── realesrgan-ncnn-vulkan.exe  # 核心超分引擎程序
+ │       ├── vcomp140.dll
+ │       ├── vcomp140d.dll
+ │       └── models/                     # 存放不同算法的超分模型
+ │           ├── realesr-animevideov3-x2.bin
+ │           ├── realesr-animevideov3-x2.param
+ │           ├── realesrgan-x4plus.bin
+ │           ├── realesrgan-x4plus.param
+ │           ├── realesrgan-x4plus-anime.bin
+ │           └── ... (其他模型及参数文件)
+ ├── src/                                # Vue 前端源代码
+ │   ├── components/                     # 独立组件 (如对话助手、图片详情等)
+ │   ├── pages/                          # 主页面 (生成页、图库页、设置页)
+ │   ├── stores/                         # Pinia 状态管理
+ │   └── utils/                          # API 请求及本地存储工具类
+ ├── electron/                           # Electron 主进程及预加载脚本
+ │   ├── main.cjs
+ │   └── preload.cjs
+ ├── public/                             # 静态资源 (图标等)
+ ├── package.json                        # 项目配置及依赖
+ └── vite.config.js                      # Vite 构建配置
+
+#### 5. 启动开发环境
 npm run dev
 
-# 6. 打包构建
+#### 6. 打包构建
 npm run build
 
 ## 免责声明 (Disclaimer)
