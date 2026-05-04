@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Release](https://img.shields.io/github/v/release/Fox-Fox-Mio/MioDraw)](https://github.com/Fox-Fox-Mio/MioDraw/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows)](#)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-lightgrey)](#)
 [![Downloads](https://img.shields.io/github/downloads/Fox-Fox-Mio/MioDraw/total)](https://github.com/Fox-Fox-Mio/MioDraw/releases)
 
 [**直接下载 (Releases)**](https://github.com/Fox-Fox-Mio/MioDraw/releases) · [**使用说明文档**](#) · [**报告 Bug**](https://github.com/Fox-Fox-Mio/MioDraw/issues)
@@ -18,10 +18,11 @@
 ---
 
 ## 写在前面
-1. 本软件80%以上代码使用AI工具开发，如果您不能接受，请不要下载本软件qwq
-2. 本软件是作者的第一个开源项目，因此项目维护，整体管理都是新手水平，还请多多包涵，勿喷QAQ
-3. 由于作者学业原因，本项目后续更新/维护可能会较为缓慢，见谅
-4. 欢迎加入狐狐澪的QQ交流群：1082998626 共同聊天与讨论哦qwq
+1. 如果你想要快速开始，直接进入Releases页面下载就行哦，软件内包含完整使用说明文档
+2. 本软件80%以上代码使用AI工具开发，如果您不能接受，请不要下载本软件qwq
+3. 本软件是作者的第一个开源项目，因此项目维护，整体管理都是新手水平，还请多多包涵，勿喷QAQ
+4. 由于作者学业原因，本项目后续更新/维护可能会较为缓慢，见谅
+5. 欢迎加入狐狐澪的QQ交流群：1082998626 共同聊天与讨论哦qwq
 
 ## 为什么选择 MioDraw？
 
@@ -32,7 +33,7 @@
 
 ### 1. 极致生图体验，多节点并发
 - **灵活配置**：支持自由配置多个 API 站点（兼容 OpenAI 格式及各类中转接口）。
-- **多接口适配**：原生支持 `图片模型 (/images/generations)`、`Chat 模型 (/chat/completions)` 与 `Responses 接口`。
+- **多接口适配**：原生支持 图片模型 (/images/generations)、Chat 模型 (/chat/completions) 与 Responses 接口。
 - **并发控制**：强大的任务系统，实时监控每个并发任务的进度与耗时，支持随时**一键物理打断**。
 - **精准作画**：支持多张本地参考图上传，提供从 1K 到 4K 的十余种主流画幅比例预设（支持自定义）。
 
@@ -71,14 +72,17 @@
 如果您想亲自修改代码或构建属于自己的版本：
 
 #### 1. 克隆仓库
+```text
 git clone https://github.com/Fox-Fox-Mio/MioDraw.git
-
+```
 #### 2. 进入目录
+```text
 cd MioDraw
-
+```
 #### 3. 安装依赖 (推荐使用 npm 镜像加速)
+```text
 npm install
-
+```
 #### 4. 下载本地超分引擎并确认项目结构 (必做)
 ### 请前往 Real-ESRGAN 官方下载 Windows Vulkan 版本，并将其放置于 resources/upscaler/ 目录下。
 
@@ -113,11 +117,13 @@ miodraw/
 ```
 
 #### 5. 启动开发环境
+```text
 npm run dev
-
+```
 #### 6. 打包构建
+```text
 npm run build
-
+```
 ## 免责声明 (Disclaimer)
 本软件为免费开源的图形化桌面客户端，仅供个人学习、研究与交流使用，严禁用于任何商业营利目的。
 本软件本身不包含、不提供任何云端大模型服务，用户需自行合法合规地配置第三方 API。
