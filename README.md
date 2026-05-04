@@ -84,6 +84,7 @@ npm install
 
 项目目录结构要求 (Project Structure)
 
+```text
 miodraw/
  ├── resources/
  │   └── upscaler/
@@ -108,6 +109,8 @@ miodraw/
  ├── public/                             # 静态资源 (图标等)
  ├── package.json                        # 项目配置及依赖
  └── vite.config.js                      # Vite 构建配置
+
+```
 
 #### 5. 启动开发环境
 npm run dev
