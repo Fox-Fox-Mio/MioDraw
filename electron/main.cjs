@@ -24,10 +24,37 @@ function decryptKey(encryptedText) {
 const fs = require('fs')
 
 const { execFile } = require('child_process')
+const mammoth = require('mammoth')
 
 const isDev = !app.isPackaged
 
 let mainWindow = null
+
+let splashWindow = null
+
+function createSplash() {
+  splashWindow = new BrowserWindow({
+    width: 460,
+    height: 380,
+    frame: false,
+    transparent: false,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    backgroundColor: '#1a1a2e',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+    show: true,
+  })
+
+  if (isDev) {
+    splashWindow.loadFile(path.join(__dirname, '../public/splash.html'))
+  } else {
+    splashWindow.loadFile(path.join(__dirname, '../dist/splash.html'))
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -53,7 +80,14 @@ function createWindow() {
   }
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow.show()
+    // 延迟一点确保渲染完成
+    setTimeout(() => {
+      mainWindow.show()
+      if (splashWindow && !splashWindow.isDestroyed()) {
+        splashWindow.close()
+        splashWindow = null
+      }
+    }, 500)
   })
 
   mainWindow.on('closed', () => {
@@ -123,12 +157,17 @@ ipcMain.on('api-request-stream', async (event, options) => {
     finalHeaders['Authorization'] = `Bearer ${decryptKey(token)}`
   }
 
+  let isTimedOut = false
   try {
     const controller = new AbortController()
     
     // 监听前端发来的中止请求
     const abortListener = () => controller.abort()
     ipcMain.once(`abort-stream-${requestId}`, abortListener)
+
+    // 空闲超时：120秒内未收到任何数据则中止
+    const STREAM_IDLE_TIMEOUT = 120000
+    let idleTimer = setTimeout(() => { isTimedOut = true; controller.abort() }, STREAM_IDLE_TIMEOUT)
 
     const response = await net.fetch(url, {
       method: method || 'POST',
@@ -138,26 +177,41 @@ ipcMain.on('api-request-stream', async (event, options) => {
     })
 
     if (response.status >= 400) {
+      clearTimeout(idleTimer)
+      ipcMain.removeListener(`abort-stream-${requestId}`, abortListener)
       const errText = await response.text()
       event.sender.send(`stream-error-${requestId}`, errText || `HTTP ${response.status}`)
       return
     }
+
+    // 连接成功，重置空闲计时器
+    clearTimeout(idleTimer)
+    idleTimer = setTimeout(() => { isTimedOut = true; controller.abort() }, STREAM_IDLE_TIMEOUT)
 
     const reader = response.body.getReader()
     const decoder = new TextDecoder('utf-8')
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
+      // 收到数据，重置空闲计时器
+      clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => { isTimedOut = true; controller.abort() }, STREAM_IDLE_TIMEOUT)
       const chunk = decoder.decode(value, { stream: true })
       // 把每一块数据发给前端
       event.sender.send(`stream-data-${requestId}`, chunk)
     }
+    clearTimeout(idleTimer)
     ipcMain.removeListener(`abort-stream-${requestId}`, abortListener)
     event.sender.send(`stream-end-${requestId}`)
     
   } catch (err) {
     if (err.name === 'AbortError') {
-      event.sender.send(`stream-end-${requestId}`) // 被用户中止，算作正常结束
+      if (isTimedOut) {
+        // 空闲超时，作为错误返回，让工作流引擎进行故障转移
+        event.sender.send(`stream-error-${requestId}`, '流式请求超时：120秒内未收到数据')
+      } else {
+        event.sender.send(`stream-end-${requestId}`) // 被用户中止，算作正常结束
+      }
     } else {
       event.sender.send(`stream-error-${requestId}`, err.message)
     }
@@ -253,14 +307,22 @@ ipcMain.handle('api-request-formdata', async (event, options) => {
 
 ipcMain.handle('download-image', async (event, url) => {
   try {
-    const response = await net.fetch(url)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 60000) // 60秒超时
+
+    const response = await net.fetch(url, { signal: controller.signal })
     const buffer = await response.arrayBuffer()
+    clearTimeout(timer)
+
     const mimeType = response.headers.get('content-type') || 'image/png'
     return {
       base64: Buffer.from(buffer).toString('base64'),
       mimeType,
     }
   } catch (err) {
+    if (err.name === 'AbortError') {
+      throw { message: '图片下载超时（60秒）' }
+    }
     throw { message: err.message || '图片下载失败' }
   }
 })
@@ -550,6 +612,206 @@ ipcMain.handle('upscale-image', async (event, { relPath, modelName, scale }) => 
   })
 })
 
+// ========== 背景去除 (Background Removal) ==========
+
+ipcMain.handle('remove-bg', async (event, { relPath, modelName }) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const imagesDir = getImagesDir()
+      const inputPath = path.join(imagesDir, relPath)
+
+      if (!fs.existsSync(inputPath)) {
+        return resolve({ success: false, error: '原图不存在' })
+      }
+
+      const parsedPath = path.parse(inputPath)
+      const outputFilename = `${parsedPath.name}_nobg${parsedPath.ext}`
+      const outputPath = path.join(parsedPath.dir, outputFilename)
+
+      const bgRemoverDir = isDev
+        ? path.join(__dirname, '../resources/bg-remover')
+        : path.join(process.resourcesPath, 'bg-remover')
+
+      const pythonPath = path.join(bgRemoverDir, 'python', 'python.exe')
+
+      if (!fs.existsSync(pythonPath)) {
+        return resolve({ success: false, error: `找不到背景去除引擎: ${pythonPath}` })
+      }
+
+      const modelsDir = path.join(bgRemoverDir, 'models')
+      if (!fs.existsSync(modelsDir)) {
+        fs.mkdirSync(modelsDir, { recursive: true })
+      }
+
+      const scriptPath = path.join(bgRemoverDir, 'run_rembg.py')
+      const args = [
+        scriptPath,
+        'i',
+        '-m', modelName || 'u2net',
+        inputPath,
+        outputPath,
+      ]
+
+      const child = execFile(pythonPath, args, {
+        cwd: bgRemoverDir,
+        timeout: 300000,
+        env: { ...process.env, U2NET_HOME: modelsDir },
+      }, (error, stdout, stderr) => {
+        if (error) {
+          if (!fs.existsSync(outputPath)) {
+            console.error('背景去除引擎报错:', error.message)
+            return resolve({ success: false, error: '背景去除失败，可能是内存不足或模型文件缺失' })
+          }
+        }
+
+        const relativeOutputDir = path.dirname(relPath)
+        const relOutputPath = path.join(relativeOutputDir, outputFilename)
+
+        resolve({ success: true, path: relOutputPath })
+      })
+
+    } catch (err) {
+      console.error('背景去除执行异常:', err)
+      resolve({ success: false, error: err.message })
+    }
+  })
+})
+
+// ========== 模型文件管理 ==========
+
+ipcMain.handle('check-model-exists', async (event, modelName) => {
+  const bgRemoverDir = isDev
+    ? path.join(__dirname, '../resources/bg-remover')
+    : path.join(process.resourcesPath, 'bg-remover')
+  const modelsDir = path.join(bgRemoverDir, 'models')
+  const modelPath = path.join(modelsDir, `${modelName}.onnx`)
+  return { exists: fs.existsSync(modelPath) }
+})
+
+ipcMain.handle('download-model', async (event, { url, modelName }) => {
+  const bgRemoverDir = isDev
+    ? path.join(__dirname, '../resources/bg-remover')
+    : path.join(process.resourcesPath, 'bg-remover')
+  const modelsDir = path.join(bgRemoverDir, 'models')
+  if (!fs.existsSync(modelsDir)) {
+    fs.mkdirSync(modelsDir, { recursive: true })
+  }
+
+  const modelPath = path.join(modelsDir, `${modelName}.onnx`)
+  const tempPath = modelPath + '.tmp'
+
+  try {
+    const response = await net.fetch(url)
+
+    if (response.status >= 400) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    const contentLength = parseInt(response.headers.get('content-length') || '0', 10)
+    const reader = response.body.getReader()
+    const chunks = []
+    let downloaded = 0
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+      downloaded += value.length
+      // 发送进度到渲染进程
+      event.sender.send('model-download-progress', { modelName, downloaded, total: contentLength })
+    }
+
+    // 拼接并写入文件
+    const buffer = Buffer.concat(chunks.map(c => Buffer.from(c)))
+    fs.writeFileSync(tempPath, buffer)
+    fs.renameSync(tempPath, modelPath)
+
+    return { success: true }
+  } catch (err) {
+    // 清理临时文件
+    if (fs.existsSync(tempPath)) {
+      try { fs.unlinkSync(tempPath) } catch {}
+    }
+    throw { message: err.message || '下载失败' }
+  }
+})
+
+// ========== 文档解析 ==========
+
+ipcMain.handle('parse-document', async (event, { base64Data, ext }) => {
+  try {
+    const buffer = Buffer.from(base64Data, 'base64')
+
+    if (ext === '.txt' || ext === '.md') {
+      const text = buffer.toString('utf-8')
+      if (!text.trim()) {
+        return { success: false, error: '文件内容为空' }
+      }
+      return { success: true, text }
+    }
+
+    if (ext === '.docx') {
+      const result = await mammoth.extractRawText({ buffer })
+      const text = result.value
+      if (!text.trim()) {
+        return { success: false, error: '该文档无法提取到文本内容，可能是空文档' }
+      }
+      return { success: true, text }
+    }
+
+    return { success: false, error: `不支持的文件格式: ${ext}` }
+  } catch (err) {
+    return { success: false, error: '文档解析失败: ' + err.message }
+  }
+})
+
+// ========== 批量导出图片 ==========
+
+ipcMain.handle('batch-export-images', async (event, { relPaths, names }) => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory'],
+      title: '选择导出目标文件夹',
+    })
+    if (result.canceled || !result.filePaths[0]) {
+      return { success: false, canceled: true }
+    }
+
+    const targetDir = result.filePaths[0]
+    const imagesDir = getImagesDir()
+    let exported = 0
+    const errors = []
+
+    for (let i = 0; i < relPaths.length; i++) {
+      const srcPath = path.join(imagesDir, relPaths[i])
+      const fileName = (names[i] || `image_${i + 1}`) + '.png'
+      // 避免文件名冲突：如果已存在则加序号
+      let destPath = path.join(targetDir, fileName)
+      let counter = 1
+      while (fs.existsSync(destPath)) {
+        const baseName = (names[i] || `image_${i + 1}`) + `_${counter}`
+        destPath = path.join(targetDir, baseName + '.png')
+        counter++
+      }
+
+      try {
+        if (fs.existsSync(srcPath)) {
+          fs.copyFileSync(srcPath, destPath)
+          exported++
+        } else {
+          errors.push(`${names[i] || relPaths[i]}: 源文件不存在`)
+        }
+      } catch (err) {
+        errors.push(`${names[i] || relPaths[i]}: ${err.message}`)
+      }
+    }
+
+    return { success: true, exported, errors }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
 ipcMain.handle('open-data-dir', async () => {
   const { shell } = require('electron')
   shell.openPath(getDataDir())
@@ -604,6 +866,7 @@ app.whenReady().then(() => {
     }
     return new Response('Not Found', { status: 404 })
   })
+  createSplash()
   createWindow()
 })
 

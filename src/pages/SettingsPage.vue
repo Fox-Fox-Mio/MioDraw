@@ -115,6 +115,109 @@
       </el-collapse>
     </div>
 
+    <!-- ===== 对话助手配置 ===== -->
+    <div class="section" style="margin-top: 20px">
+      <div class="section-header">
+        <h3>优化助手与全栈AI工作流(语言模型)配置</h3>
+        <el-button type="primary" size="small" @click="openChatSiteDialog()">
+          <el-icon><Plus /></el-icon> 添加对话站点
+        </el-button>
+      </div>
+      <div class="size-warning">
+        此处的配置专用于「优化助手」面板以及「全栈AI工作流」面板（作为语言模型），与上方的绘图站点独立，默认请求 /chat/completions 接口。
+      </div>
+
+      <div v-if="chatStore.chatSites.length === 0" class="empty-state">
+        <el-icon :size="48" color="var(--text-muted)"><Connection /></el-icon>
+        <p>还没有配置对话站点</p>
+      </div>
+
+      <el-collapse v-else v-model="expandedChatSites">
+        <el-collapse-item v-for="site in chatStore.chatSites" :key="site.id" :name="site.id">
+          <template #title>
+            <div class="site-title">
+              <span class="site-name">{{ site.name }}</span>
+              <span class="site-url">{{ site.baseUrl }}</span>
+              <div class="site-title-actions" @click.stop>
+                <el-button text size="small" @click="openChatSiteDialog(site)">
+                  <el-icon><Edit /></el-icon>
+                </el-button>
+                <el-button text size="small" type="danger" @click="handleDeleteChatSite(site)">
+                  <el-icon><Delete /></el-icon>
+                </el-button>
+              </div>
+            </div>
+          </template>
+
+          <!-- Keys 区域 -->
+          <div class="sub-section">
+            <div class="sub-header">
+              <h4>&#9654; API Keys ({{ site.keys.length }})</h4>
+              <el-button size="small" @click="openChatKeyDialog(site)">
+                <el-icon><Plus /></el-icon> 添加 Key
+              </el-button>
+            </div>
+            <div v-if="site.keys.length === 0" class="sub-empty">还没有添加 Key</div>
+            <div v-else class="item-list">
+              <div v-for="key in site.keys" :key="key.id" class="list-item">
+                <div class="item-info">
+                  <span class="item-name">{{ key.name || '(未命名)' }}</span>
+                  <span class="item-detail">{{ maskKey(key.apiKey) }}</span>
+                </div>
+                <div class="item-actions">
+                  <el-button text size="small" @click="openChatKeyDialog(site, key)">
+                    <el-icon><Edit /></el-icon>
+                  </el-button>
+                  <el-button text size="small" type="danger" @click="handleDeleteChatKey(site, key)">
+                    <el-icon><Delete /></el-icon>
+                  </el-button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 模型区域 -->
+          <div class="sub-section">
+            <div class="sub-header">
+              <h4>&#9654; 对话模型 ({{ site.models.length }})</h4>
+              <el-button size="small" @click="openChatModelDialog(site)" :disabled="site.keys.length === 0">
+                <el-icon><Plus /></el-icon> 添加模型
+              </el-button>
+            </div>
+            <div v-if="site.keys.length === 0" class="sub-empty">请先添加 Key</div>
+            <div v-else-if="site.models.length === 0" class="sub-empty">还没有添加模型</div>
+            <div v-else class="item-list">
+              <div v-for="model in site.models" :key="model.id" class="list-item">
+                <div class="item-info">
+                  <span class="item-name">{{ model.name }}</span>
+                  <div class="item-meta">
+                    <el-tag size="small">{{ chatStore.getChatKeyName(site, model.keyId) }}</el-tag>
+                  </div>
+                </div>
+                <div class="item-actions">
+                  <el-button
+                    text
+                    size="small"
+                    type="success"
+                    :loading="testingChatModelId === model.id"
+                    @click="handleTestChatModel(site, model)"
+                  >
+                    <template v-if="testingChatModelId !== model.id"><el-icon><Connection /></el-icon> 测试</template>
+                  </el-button>
+                  <el-button text size="small" @click="openChatModelDialog(site, model)">
+                    <el-icon><Edit /></el-icon>
+                  </el-button>
+                  <el-button text size="small" type="danger" @click="handleDeleteChatModel(site, model)">
+                    <el-icon><Delete /></el-icon>
+                  </el-button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
+    </div>
+
     <!-- ===== 自定义接口类型 ===== -->
     <div class="section" style="margin-top: 20px">
       <div class="section-header">
@@ -170,71 +273,22 @@
       </div>
     </div>
 
-    <!-- ===== 对话助手配置 ===== -->
-    <div class="section" style="margin-top: 20px">
-      <div class="section-header">
-        <h3>对话助手 (提示词优化) 配置</h3>
-        <el-button type="primary" size="small" @click="openChatSiteDialog()">
-          <el-icon><Plus /></el-icon> 添加对话站点
-        </el-button>
-      </div>
-      <div class="size-warning">
-        此处的配置专用于「优化助手」面板，与上方的绘图站点独立，默认请求 /chat/completions 接口。
-      </div>
-
-      <div v-if="chatStore.chatSites.length === 0" class="empty-state">
-        <el-icon :size="48" color="var(--text-muted)"><Connection /></el-icon>
-        <p>还没有配置对话站点</p>
-      </div>
-
-      <el-collapse v-else v-model="expandedChatSites">
-        <el-collapse-item v-for="site in chatStore.chatSites" :key="site.id" :name="site.id">
-          <template #title>
-            <div class="site-title">
-              <span class="site-name">{{ site.name }}</span>
-              <span class="site-url">{{ site.baseUrl }}</span>
-              <div class="site-title-actions" @click.stop>
-                <el-button text size="small" @click="openChatSiteDialog(site)">
-                  <el-icon><Edit /></el-icon>
-                </el-button>
-                <el-button text size="small" type="danger" @click="handleDeleteChatSite(site)">
-                  <el-icon><Delete /></el-icon>
-                </el-button>
-              </div>
-            </div>
-          </template>
-
-          <div class="sub-section">
-            <div class="sub-header">
-              <h4>▶ 对话模型 ({{ site.models.length }})</h4>
-              <el-button size="small" @click="openChatModelDialog(site)">
-                <el-icon><Plus /></el-icon> 添加模型
-              </el-button>
-            </div>
-            <div v-if="site.models.length === 0" class="sub-empty">还没有添加模型</div>
-            <div v-else class="item-list">
-              <div v-for="model in site.models" :key="model.id" class="list-item">
-                <div class="item-info">
-                  <span class="item-name">{{ model.name }}</span>
-                </div>
-                <div class="item-actions">
-                  <el-button text size="small" @click="openChatModelDialog(site, model)">
-                    <el-icon><Edit /></el-icon>
-                  </el-button>
-                  <el-button text size="small" type="danger" @click="handleDeleteChatModel(site, model)">
-                    <el-icon><Delete /></el-icon>
-                  </el-button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </el-collapse-item>
-      </el-collapse>
-    </div>
-
     <!-- 显示设置 -->
     <div class="section" style="margin-top: 20px">
       <div class="section-header"><h3>显示设置</h3></div>
+      <div class="setting-item">
+        <div class="setting-info">
+          <span class="setting-label">生成页布局</span>
+          <span class="setting-desc">横向：上半部分参数和预览，下半部分历史；竖向：左半部分集中操作，右半部分历史</span>
+        </div>
+        <el-radio-group
+          :model-value="themeStore.layoutMode"
+          @update:model-value="themeStore.setLayoutMode"
+        >
+          <el-radio-button value="horizontal">横向</el-radio-button>
+          <el-radio-button value="vertical">竖向</el-radio-button>
+        </el-radio-group>
+      </div>
       <div class="setting-item">
         <div class="setting-info">
           <span class="setting-label">生成页图片显示</span>
@@ -257,17 +311,69 @@
       </div>
       <div class="setting-item">
         <div class="setting-info">
-          <span class="setting-label">生成页布局</span>
-          <span class="setting-desc">横向：上半部分参数和预览，下半部分历史；竖向：左半部分集中操作，右半部分历史</span>
+          <span class="setting-label">工作流页面图片显示</span>
+          <span class="setting-desc">控制全栈AI工作流页面中参考图和最终图片的排列方式</span>
         </div>
-        <el-radio-group
-          :model-value="themeStore.layoutMode"
-          @update:model-value="themeStore.setLayoutMode"
-        >
-          <el-radio-button value="horizontal">横向</el-radio-button>
-          <el-radio-button value="vertical">竖向</el-radio-button>
+        <el-radio-group :model-value="themeStore.workflowDisplayMode" @update:model-value="themeStore.setWorkflowDisplayMode">
+          <el-radio-button value="square">等比方格</el-radio-button>
+          <el-radio-button value="masonry">瀑布流</el-radio-button>
         </el-radio-group>
       </div>
+
+      <div class="setting-item">
+        <div class="setting-info">
+          <span class="setting-label">累计任务模式</span>
+          <span class="setting-desc">开启后可连续提交多批次生成任务，各批次独立运行和中止，同时执行上限 10 个任务</span>
+        </div>
+        <el-switch
+          :model-value="themeStore.multiBatchMode"
+          @update:model-value="themeStore.setMultiBatchMode"
+        />
+      </div>
+    </div>
+
+    <!-- 工作流提示音 -->
+    <div class="section" style="margin-top: 20px">
+      <div class="section-header"><h3>提示音</h3></div>
+      <div class="setting-item">
+        <div class="setting-info">
+          <span class="setting-label">启用提示音</span>
+          <span class="setting-desc">开启后，生图完成和工作流需要用户操作时会播放提示音</span>
+        </div>
+        <el-switch
+          :model-value="themeStore.workflowSoundEnabled"
+          @update:model-value="themeStore.setWorkflowSoundEnabled"
+        />
+      </div>
+      <div v-if="themeStore.workflowSoundEnabled" class="setting-item">
+        <div class="setting-info">
+          <span class="setting-label">自定义提示音</span>
+          <span class="setting-desc">{{ themeStore.workflowCustomSound ? '已设置自定义提示音' : '未设置，使用默认提示音' }}</span>
+        </div>
+        <div class="bg-actions">
+          <el-button size="small" @click="testSound">
+            试听
+          </el-button>
+          <el-button size="small" @click="selectSoundFile">
+            <el-icon><Upload /></el-icon> 选择音频
+          </el-button>
+          <el-button v-if="themeStore.workflowCustomSound" size="small" type="danger" plain @click="themeStore.setWorkflowCustomSound('')">
+            清除
+          </el-button>
+        </div>
+      </div>
+      <div v-if="themeStore.workflowSoundEnabled" class="setting-item">
+        <div class="setting-info">
+          <span class="setting-label">提示音音量</span>
+          <span class="setting-desc">{{ Math.round(themeStore.notificationVolume * 100) }}%</span>
+        </div>
+        <el-slider
+          :model-value="themeStore.notificationVolume"
+          @update:model-value="themeStore.setNotificationVolume"
+          :min="0.05" :max="1" :step="0.05" style="width: 200px"
+        />
+      </div>
+      <input ref="soundInputRef" type="file" accept="audio/*" style="display: none" @change="onSoundFileSelected" />
     </div>
 
     <!-- 外观设置 -->
@@ -364,7 +470,7 @@
           <el-input v-model="siteForm.name" placeholder="例如：我的站点" />
         </el-form-item>
         <el-form-item label="Base URL" required>
-          <el-input v-model="siteForm.baseUrl" placeholder="例如：https://api.example.com/v1" />
+          <el-input v-model="siteForm.baseUrl" placeholder="例如：https://xxx.com/v1（请务必保证结尾为/v1）" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -458,10 +564,7 @@
           <el-input v-model="chatSiteForm.name" placeholder="例如：OpenAI 官方" />
         </el-form-item>
         <el-form-item label="Base URL" required>
-          <el-input v-model="chatSiteForm.baseUrl" placeholder="例如：https://api.openai.com/v1" />
-        </el-form-item>
-        <el-form-item label="API Key" required>
-          <el-input v-model="chatSiteForm.apiKey" placeholder="sk-..." show-password type="password" />
+          <el-input v-model="chatSiteForm.baseUrl" placeholder="例如：https://xxx.com/v1（请务必保证结尾为/v1）" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -470,11 +573,37 @@
       </template>
     </el-dialog>
 
+    <!-- 对话 Key 对话框 -->
+    <el-dialog v-model="chatKeyDialogVisible" :title="editingChatKey ? '编辑 Key' : '添加 Key'" width="500px">
+      <el-form :model="chatKeyForm" label-width="90px">
+        <el-form-item label="名称/备注">
+          <el-input v-model="chatKeyForm.name" placeholder="例如：主Key / 备用Key" />
+        </el-form-item>
+        <el-form-item label="API Key" required>
+          <el-input v-model="chatKeyForm.apiKey" placeholder="sk-..." show-password type="password" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="chatKeyDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitChatKey">确定</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 对话模型对话框 -->
-    <el-dialog v-model="chatModelDialogVisible" :title="editingChatModel ? '编辑对话模型' : '添加对话模型'" width="400px">
+    <el-dialog v-model="chatModelDialogVisible" :title="editingChatModel ? '编辑对话模型' : '添加对话模型'" width="500px">
       <el-form :model="chatModelForm" label-width="90px">
         <el-form-item label="模型名称" required>
           <el-input v-model="chatModelForm.name" placeholder="例如：gpt-4o" />
+        </el-form-item>
+        <el-form-item label="使用 Key" required>
+          <el-select v-model="chatModelForm.keyId" style="width: 100%">
+            <el-option
+              v-for="key in currentChatSiteForModel?.keys || []"
+              :key="key.id"
+              :label="`${key.name || '(未命名)'} — ${maskKey(key.apiKey)}`"
+              :value="key.id"
+            />
+          </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -746,18 +875,17 @@ const expandedChatSites = ref([])
 // ========== 对话站点 ==========
 const chatSiteDialogVisible = ref(false)
 const editingChatSite = ref(null)
-const chatSiteForm = reactive({ name: '', baseUrl: '', apiKey: '' })
+const chatSiteForm = reactive({ name: '', baseUrl: '' })
 
 function openChatSiteDialog(site) {
   editingChatSite.value = site || null
   chatSiteForm.name = site?.name || ''
   chatSiteForm.baseUrl = site?.baseUrl || ''
-  chatSiteForm.apiKey = site?.apiKey || ''
   chatSiteDialogVisible.value = true
 }
 
 function submitChatSite() {
-  if (!chatSiteForm.name || !chatSiteForm.baseUrl || !chatSiteForm.apiKey) {
+  if (!chatSiteForm.name || !chatSiteForm.baseUrl) {
     ElMessage.warning('请填写完整')
     return
   }
@@ -765,20 +893,59 @@ function submitChatSite() {
     chatStore.updateChatSite(editingChatSite.value.id, { ...chatSiteForm })
     ElMessage.success('已更新')
   } else {
-    const site = { ...chatSiteForm }
-    chatStore.addChatSite(site)
-    // 获取刚加的站点 id，展开折叠面板
-    const addedSite = chatStore.chatSites[chatStore.chatSites.length - 1]
-    expandedChatSites.value.push(addedSite.id)
-    ElMessage.success('已添加，请继续添加对话模型')
+    const site = chatStore.addChatSite({ ...chatSiteForm })
+    expandedChatSites.value.push(site.id)
+    ElMessage.success('已添加，请继续添加 Key 和模型')
   }
   chatSiteDialogVisible.value = false
 }
 
 async function handleDeleteChatSite(site) {
   try {
-    await ElMessageBox.confirm(`确定删除对话站点「${site.name}」？其下的所有模型也会被删除`, '删除确认', { type: 'warning' })
+    await ElMessageBox.confirm(`确定删除对话站点「${site.name}」？其下的所有 Key 和模型都会被删除`, '删除确认', {
+      confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning',
+    })
     chatStore.deleteChatSite(site.id)
+    ElMessage.success('已删除')
+  } catch { /* 取消 */ }
+}
+
+// ========== 对话 Key ==========
+const chatKeyDialogVisible = ref(false)
+const editingChatKey = ref(null)
+const currentChatSiteForKey = ref(null)
+const chatKeyForm = reactive({ name: '', apiKey: '' })
+
+function openChatKeyDialog(site, key) {
+  currentChatSiteForKey.value = site
+  editingChatKey.value = key || null
+  chatKeyForm.name = key?.name || ''
+  chatKeyForm.apiKey = key?.apiKey || ''
+  chatKeyDialogVisible.value = true
+}
+
+function submitChatKey() {
+  if (!chatKeyForm.apiKey) {
+    ElMessage.warning('请输入 API Key')
+    return
+  }
+  const site = currentChatSiteForKey.value
+  if (editingChatKey.value) {
+    chatStore.updateChatKey(site.id, editingChatKey.value.id, { ...chatKeyForm })
+    ElMessage.success('已更新')
+  } else {
+    chatStore.addChatKey(site.id, { ...chatKeyForm })
+    ElMessage.success('已添加')
+  }
+  chatKeyDialogVisible.value = false
+}
+
+async function handleDeleteChatKey(site, key) {
+  try {
+    await ElMessageBox.confirm(`确定删除 Key「${key.name || '(未命名)'}」？`, '删除确认', {
+      confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning',
+    })
+    chatStore.deleteChatKey(site.id, key.id)
     ElMessage.success('已删除')
   } catch { /* 取消 */ }
 }
@@ -787,26 +954,27 @@ async function handleDeleteChatSite(site) {
 const chatModelDialogVisible = ref(false)
 const editingChatModel = ref(null)
 const currentChatSiteForModel = ref(null)
-const chatModelForm = reactive({ name: '' })
+const chatModelForm = reactive({ name: '', keyId: '' })
 
 function openChatModelDialog(site, model) {
   currentChatSiteForModel.value = site
   editingChatModel.value = model || null
   chatModelForm.name = model?.name || ''
+  chatModelForm.keyId = model?.keyId || site.keys[0]?.id || ''
   chatModelDialogVisible.value = true
 }
 
 function submitChatModel() {
-  if (!chatModelForm.name) {
-    ElMessage.warning('请填写模型名称')
+  if (!chatModelForm.name || !chatModelForm.keyId) {
+    ElMessage.warning('请填写完整')
     return
   }
   const site = currentChatSiteForModel.value
   if (editingChatModel.value) {
-    chatStore.updateChatModel(site.id, editingChatModel.value.id, chatModelForm.name)
+    chatStore.updateChatModel(site.id, editingChatModel.value.id, { ...chatModelForm })
     ElMessage.success('已更新')
   } else {
-    chatStore.addChatModel(site.id, chatModelForm.name)
+    chatStore.addChatModel(site.id, { ...chatModelForm })
     ElMessage.success('已添加')
   }
   chatModelDialogVisible.value = false
@@ -814,10 +982,53 @@ function submitChatModel() {
 
 async function handleDeleteChatModel(site, model) {
   try {
-    await ElMessageBox.confirm(`确定删除对话模型「${model.name}」？`, '删除确认', { type: 'warning' })
+    await ElMessageBox.confirm(`确定删除对话模型「${model.name}」？`, '删除确认', {
+      confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning',
+    })
     chatStore.deleteChatModel(site.id, model.id)
     ElMessage.success('已删除')
   } catch { /* 取消 */ }
+}
+
+// ========== 对话模型测试 ==========
+const testingChatModelId = ref(null)
+
+async function handleTestChatModel(site, model) {
+  const config = chatStore.getChatConfig(site.id, model.id)
+  if (!config) {
+    ElMessage.error('无法获取模型配置，请检查是否已绑定有效的 Key')
+    return
+  }
+
+  testingChatModelId.value = model.id
+
+  try {
+    const response = await window.electronAPI.apiRequest({
+      url: `${config.baseUrl}/chat/completions`,
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: [{ role: 'user', content: 'Hi, this is a connectivity test. Reply with "OK" only.' }],
+        max_tokens: 10,
+      }),
+      timeout: 30000,
+    })
+
+    if (response.status >= 400) {
+      const errMsg = response.data?.error?.message || response.data?.message || `HTTP ${response.status}`
+      ElMessage.error(`测试失败 (${response.status}): ${errMsg}`)
+    } else {
+      ElMessage.success(`模型「${config.model}」连接正常`)
+    }
+  } catch (err) {
+    ElMessage.error(`测试失败: ${err.message || '请求异常'}`)
+  } finally {
+    testingChatModelId.value = null
+  }
 }
 
 // ========== 工具 ==========
@@ -848,6 +1059,31 @@ function onBgFileSelected(e) {
   e.target.value = ''
 }
 function removeBgImage() { themeStore.setBgImage('') }
+
+// ========== 提示音 ==========
+const soundInputRef = ref(null)
+
+function selectSoundFile() {
+  soundInputRef.value?.click()
+}
+
+function onSoundFileSelected(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = (ev) => {
+    themeStore.setWorkflowCustomSound(ev.target.result)
+    ElMessage.success('已设置自定义提示音')
+  }
+  reader.readAsDataURL(file)
+  e.target.value = ''
+}
+
+function testSound() {
+  import('@/utils/notificationSound').then(({ playNotificationSound }) => {
+    playNotificationSound()
+  })
+}
 
 // ========== 尺寸 ==========
 const showSizeDialog = ref(false)

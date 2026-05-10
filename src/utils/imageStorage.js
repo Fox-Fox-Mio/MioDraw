@@ -88,3 +88,24 @@ export async function upscaleImage(relPath, modelName = 'realesrgan-x4plus', sca
     fileUrl: relPathToUrl(result.path)
   }
 }
+
+/**
+ * 背景去除
+ */
+export async function removeBgImage(relPath, modelName = 'u2net') {
+  if (!relPath) throw new Error('无效的图片路径')
+
+  const result = await window.electronAPI.removeBg({
+    relPath,
+    modelName,
+  })
+
+  if (!result.success) {
+    throw new Error(result.error || '背景去除失败')
+  }
+
+  return {
+    relPath: result.path,
+    fileUrl: relPathToUrl(result.path),
+  }
+}

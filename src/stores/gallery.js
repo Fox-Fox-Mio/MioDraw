@@ -166,6 +166,35 @@ export const useGalleryStore = defineStore('gallery', () => {
     }
   }
 
+    /**
+   * 批量导入工作流图片，创建为独立相册
+   */
+  async function batchAddFromWorkflow(images, albumName) {
+    for (const img of images) {
+      const record = {
+        id: img.id || Date.now().toString() + Math.random().toString(36).slice(2, 6),
+        name: img.name || '工作流图片',
+        relPath: img.relPath || '',
+        prompt: img.prompt || '',
+        model: img.model || '',
+        siteName: img.siteName || '',
+        size: img.size || '',
+        apiType: img.apiType || '',
+        hasReference: false,
+        createdAt: img.createdAt || new Date().toISOString(),
+        favorite: false,
+        album: albumName,
+        isUpscaled: false,
+        isFromWorkflow: true,
+        workflowScore: img.score,
+        workflowAttempts: img.attempts,
+        planDescription: img.planDescription || '',
+      }
+      generatedImages.value.unshift(record)
+    }
+    saveGenerated()
+  }
+
   /**
    * 获取图片显示 URL（优先用 dataUrl，其次用 miodraw:// 协议）
    * @param {Object} img 图片对象
@@ -195,5 +224,6 @@ export const useGalleryStore = defineStore('gallery', () => {
     renameGeneratedImage,
     toggleFavorite,
     getDisplayUrl,
+    batchAddFromWorkflow,
   }
 })

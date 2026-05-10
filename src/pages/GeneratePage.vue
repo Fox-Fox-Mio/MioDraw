@@ -118,7 +118,14 @@
             </el-button>
           </div>
           <div class="ref-image-area">
-            <div v-if="referenceImages.length > 0" class="ref-list">
+            <div
+              v-if="referenceImages.length > 0"
+              class="ref-list"
+              :class="{ 'ref-list--dragover': refDragover }"
+              @dragover.prevent="refDragover = true"
+              @dragleave="refDragover = false"
+              @drop.prevent="onRefDrop"
+            >
               <div
                 v-for="img in referenceImages"
                 :key="img.id"
@@ -133,9 +140,17 @@
                 <el-icon :size="20"><Plus /></el-icon>
               </div>
             </div>
-            <div v-else class="ref-upload" @click="selectReferenceImage">
+            <div
+              v-else
+              class="ref-upload"
+              :class="{ 'ref-upload--dragover': refDragover }"
+              @click="selectReferenceImage"
+              @dragover.prevent="refDragover = true"
+              @dragleave="refDragover = false"
+              @drop.prevent="onRefDrop"
+            >
               <el-icon :size="24"><Upload /></el-icon>
-              <span>点击上传参考图</span>
+              <span>点击或拖拽上传参考图</span>
             </div>
             <input
               ref="fileInputRef"
@@ -145,6 +160,39 @@
               style="display: none"
               @change="onFileSelected"
             />
+          </div>
+        </div>
+        <!-- 角色卡（可选） -->
+        <div class="param-group">
+          <div class="param-label-row">
+            <label class="param-label">角色卡（可选）</label>
+            <el-button
+              v-if="selectedCharacter"
+              text
+              size="small"
+              type="danger"
+              @click="selectedCharacter = null"
+            >
+              移除
+            </el-button>
+          </div>
+          <div v-if="selectedCharacter" class="char-selected-card">
+            <img
+              v-if="selectedCharacter.mainImageRelPath"
+              :src="getCharImageUrl(selectedCharacter)"
+              alt=""
+              class="char-selected-img"
+            />
+            <div class="char-selected-info">
+              <span class="char-selected-name">{{ selectedCharacter.name }}</span>
+              <span class="char-selected-meta">
+                {{ selectedCharacter.appearance ? '已有外观描述' : '无外观描述' }}
+              </span>
+            </div>
+          </div>
+          <div v-else class="char-select-area" @click="showCharSelectDialog = true">
+            <el-icon :size="20"><User /></el-icon>
+            <span>点击选择角色卡</span>
           </div>
         </div>
       </div>
@@ -164,7 +212,7 @@
           />
           <div class="prompt-btns">
             <el-button
-              v-if="!genStore.isGenerating"
+              v-if="themeStore.multiBatchMode || !genStore.isGenerating"
               type="primary"
               class="gen-btn"
               :disabled="!canGenerate"
@@ -191,24 +239,41 @@
 
         <!-- 当前生成预览 -->
         <!-- 任务监控面板 -->
+        <!-- 任务监控面板 -->
         <div class="status-area">
-          <div v-if="genStore.tasks.length === 0" class="status-empty">
+          <div v-if="statusIsEmpty" class="status-empty">
             <el-icon :size="48" color="var(--text-muted)"><Monitor /></el-icon>
             <p>开始生成后，这里会显示任务进度</p>
           </div>
 
           <div v-else class="status-content">
-            <div v-if="genStore.hasSuccess" class="success-banner">
+            <div v-if="genStore.hasSuccess && !successBannerDismissed" class="success-banner">
               <el-icon><CircleCheck /></el-icon>
-              已有图片生成成功，请在「最近生成」或「图库」页面查看
+              <span class="success-banner-text">已有图片生成成功，请在「最近生成」或「图库」页面查看</span>
+              <button class="success-banner-close" @click="successBannerDismissed = true">
+                <el-icon><Close /></el-icon>
+              </button>
             </div>
 
             <div class="status-header">
               <div>
                 <h3 class="status-title">并发任务</h3>
-                <p class="status-desc">显示当前批次的执行进度，完成后的结果将自动保存到图库</p>
+                <p class="status-desc">{{ themeStore.multiBatchMode ? '累计任务模式：可连续提交多批次，各批次独立运行' : '显示当前批次的执行进度，完成后的结果将自动保存到图库' }}</p>
               </div>
-              <span class="status-elapsed">总耗时 {{ formatElapsed(totalElapsed) }}</span>
+              <div class="status-elapsed-row">
+                <span class="status-elapsed">总耗时 {{ formatElapsed(totalElapsed) }}</span>
+                <el-button
+                  v-if="themeStore.multiBatchMode"
+                  size="small"
+                  type="danger"
+                  plain
+                  class="clear-history-btn"
+                  :disabled="genStore.hasRunningBatches"
+                  @click="genStore.clearBatches()"
+                >
+                  <el-icon><Delete /></el-icon> 清理历史
+                </el-button>
+              </div>
             </div>
 
             <div class="stats-row">
@@ -230,7 +295,65 @@
               </div>
             </div>
 
-            <div class="task-list">
+            <!-- 累计任务模式：按批次分组显示 -->
+            <div v-if="themeStore.multiBatchMode" class="batch-list">
+              <div
+                v-for="batch in genStore.batches"
+                :key="batch.id"
+                class="batch-card"
+                :class="{
+                  'batch-card--running': batch.isRunning,
+                  'batch-card--stopped': !batch.isRunning && batch.isStopped,
+                  'batch-card--done': !batch.isRunning && !batch.isStopped,
+                }"
+              >
+                <div class="batch-header">
+                  <div class="batch-info">
+                    <div class="batch-prompt" :title="batch.prompt">{{ batch.prompt }}</div>
+                    <div class="batch-meta">{{ batch.siteName }} · {{ batch.modelName }}</div>
+                    <span class="batch-elapsed">{{ formatBatchElapsed(batch) }}</span>
+                  </div>
+                  <el-button
+                    v-if="batch.isRunning"
+                    type="danger"
+                    size="small"
+                    class="batch-stop-btn"
+                    @click="handleStopMultiBatch(batch.id)"
+                  >
+                    <el-icon><CircleClose /></el-icon> 中止
+                  </el-button>
+                  <span
+                    v-else
+                    class="batch-done-tag"
+                    :class="batch.isStopped ? 'tag--stopped' : 'tag--done'"
+                  >
+                    {{ batch.isStopped ? '已停止' : '已完成' }}
+                  </span>
+                </div>
+                <div class="batch-task-list">
+                  <div
+                    v-for="task in batch.tasks"
+                    :key="task.id"
+                    class="task-item"
+                    :class="`task-item--${task.status}`"
+                  >
+                    <div class="task-row">
+                      <div class="task-left">
+                        <span class="task-num">任务 #{{ task.id }}</span>
+                        <span class="task-tag">{{ statusLabel(task.status) }}</span>
+                      </div>
+                      <div class="task-right">
+                        <span class="task-duration">{{ formatTaskDuration(task) }}</span>
+                      </div>
+                    </div>
+                    <div v-if="task.error" class="task-error">{{ task.error }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 单批次模式：普通任务列表 -->
+            <div v-else class="task-list">
               <div
                 v-for="task in genStore.tasks"
                 :key="task.id"
@@ -306,8 +429,15 @@
           </el-button>
         </div>
         <div
-          :class="['panel-grid', themeStore.imageDisplayMode === 'masonry' ? 'panel-grid--masonry' : 'panel-grid--square']"
+          :class="[
+            'panel-grid',
+            themeStore.imageDisplayMode === 'masonry' ? 'panel-grid--masonry' : 'panel-grid--square',
+            importDragover ? 'panel-grid--dragover' : ''
+          ]"
           v-if="galleryStore.importedImages.length > 0"
+          @dragover.prevent="importDragover = true"
+          @dragleave="importDragover = false"
+          @drop.prevent="onImportDrop"
         >
           <div
             v-for="img in galleryStore.importedImages.slice(0, 20)"
@@ -330,8 +460,15 @@
             </div>
           </div>
         </div>
-        <div v-else class="panel-empty">
-          <span>点击「导入」添加参考图</span>
+        <div
+          v-else
+          class="panel-empty panel-empty--droppable"
+          :class="{ 'panel-empty--dragover': importDragover }"
+          @dragover.prevent="importDragover = true"
+          @dragleave="importDragover = false"
+          @drop.prevent="onImportDrop"
+        >
+          <span>点击「导入」或拖拽图片到此处</span>
         </div>
         <input
           ref="importInputRef"
@@ -344,7 +481,32 @@
       </div>
     </div>
     <LogViewer v-model="showLogViewer" />
-    <PromptAssistant v-model="showAssistant" />
+    <PromptAssistant v-model="showAssistant" :ref-images="referenceImages" />
+        <!-- 角色卡选择弹窗 -->
+    <el-dialog v-model="showCharSelectDialog" title="选择角色卡" width="600px" :close-on-click-modal="true">
+      <div class="char-select-dialog-body">
+        <div v-if="characterStore.characters.length > 0" class="char-select-grid">
+          <div
+            v-for="ch in characterStore.characters"
+            :key="ch.id"
+            class="char-select-item"
+            :class="{ 'char-select-item--active': selectedCharacter?.id === ch.id }"
+            @click="selectCharacter(ch)"
+          >
+            <div class="char-select-item-img">
+              <img v-if="ch.mainImageRelPath" :src="getCharImageUrl(ch, true)" :alt="ch.name" loading="lazy" />
+              <div v-else class="char-select-item-placeholder">
+                <el-icon :size="24"><User /></el-icon>
+              </div>
+            </div>
+            <span class="char-select-item-name">{{ ch.name }}</span>
+          </div>
+        </div>
+        <div v-else class="char-select-empty">
+          <p>还没有角色卡，请先到「角色卡」页面创建</p>
+        </div>
+      </div>
+    </el-dialog>
     <ImageDetail
       v-model:visible="detailVisible"
       :image="detailImage"
@@ -365,13 +527,15 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Brush, Close, Upload, Loading, PictureFilled,
   DocumentCopy, Plus, Delete, Document, CircleClose,
-  Monitor, CircleCheck, ChatDotRound,
+  Monitor, CircleCheck, ChatDotRound, User,
 } from '@element-plus/icons-vue'
 import LogViewer from '@/components/LogViewer.vue'
 import ImageDetail from '@/components/ImageDetail.vue'
 import { useGenerationStore } from '@/stores/generation'
 import { readImageAsBase64 } from '@/utils/imageStorage'
 import PromptAssistant from '@/components/PromptAssistant.vue'
+import { useCharacterStore } from '@/stores/character'
+import { relPathToUrl } from '@/utils/imageStorage'
 
 const showAssistant = ref(false)
 const showLogViewer = ref(false)
@@ -379,7 +543,9 @@ const apiStore = useApiStore()
 const galleryStore = useGalleryStore()
 const themeStore = useThemeStore()
 const genStore = useGenerationStore()
+const characterStore = useCharacterStore()
 
+const successBannerDismissed = ref(false)
 const detailVisible = ref(false)
 const detailImage = ref(null)
 const detailType = ref('generated')
@@ -403,6 +569,13 @@ const currentTime = ref(Date.now())
 let timeUpdateInterval = null
 
 const totalElapsed = computed(() => {
+  if (themeStore.multiBatchMode) {
+    if (genStore.batches.length === 0) return 0
+    const start = Math.min(...genStore.batches.map(b => b.startTime))
+    if (genStore.hasRunningBatches) return currentTime.value - start
+    const end = Math.max(...genStore.batches.map(b => b.endTime || b.startTime))
+    return end - start
+  }
   if (!genStore.batchStartTime) return 0
   const end = genStore.batchEndTime || currentTime.value
   return end - genStore.batchStartTime
@@ -448,11 +621,69 @@ function statusLabel(status) {
   }[status] || status
 }
 
+const statusIsEmpty = computed(() => {
+  if (themeStore.multiBatchMode) return genStore.batches.length === 0
+  return genStore.tasks.length === 0
+})
+
 onUnmounted(() => stopTimeUpdate())
 
 // DOM refs
 const fileInputRef = ref(null)
 const importInputRef = ref(null)
+
+const refDragover = ref(false)
+
+function onRefDrop(e) {
+  refDragover.value = false
+  const files = Array.from(e.dataTransfer?.files || [])
+  const imageFiles = files.filter(f => f.type.startsWith('image/'))
+  if (imageFiles.length === 0) {
+    ElMessage.warning('请拖入图片文件')
+    return
+  }
+  for (const file of imageFiles) {
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      referenceImages.value.push({
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+        dataUrl: ev.target.result,
+        file,
+      })
+    }
+    reader.readAsDataURL(file)
+  }
+}
+
+const importDragover = ref(false)
+
+function onImportDrop(e) {
+  importDragover.value = false
+  const files = Array.from(e.dataTransfer?.files || [])
+  const imageFiles = files.filter(f => f.type.startsWith('image/'))
+  if (imageFiles.length === 0) {
+    ElMessage.warning('请拖入图片文件')
+    return
+  }
+
+  let loaded = 0
+  for (const file of imageFiles) {
+    const reader = new FileReader()
+    reader.onload = async (ev) => {
+      await galleryStore.addImportedImage({
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+        name: file.name,
+        dataUrl: ev.target.result,
+        importedAt: new Date().toISOString(),
+      })
+      loaded++
+      if (loaded === imageFiles.length) {
+        ElMessage.success(`已导入 ${loaded} 张图片`)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+}
 
 //判断是否为responses
 const isResponsesModel = computed(() => {
@@ -461,10 +692,18 @@ const isResponsesModel = computed(() => {
 })
 
 const canGenerate = computed(() => {
+  if (themeStore.multiBatchMode) {
+    return selectedSiteId.value && selectedModelId.value && genStore.prompt.trim() && genStore.totalRunningCount < 10
+  }
   return selectedSiteId.value && selectedModelId.value && genStore.prompt.trim() && !genStore.isGenerating
 })
 
-onMounted(() => {
+onMounted(async () => {
+  await characterStore.init()
+
+  // 阻止 Electron 默认拖拽行为（防止页面导航到文件）
+  document.addEventListener('dragover', (e) => e.preventDefault())
+  document.addEventListener('drop', (e) => e.preventDefault())
   if (apiStore.activeSiteId) {
     selectedSiteId.value = apiStore.activeSiteId
     selectedModelId.value = apiStore.activeModelId
@@ -473,7 +712,7 @@ onMounted(() => {
     selectedModelId.value = apiStore.sites[0].models[0]?.id || null
   }
   // 如果还在生成中（用户刚切回页面），恢复定时器
-  if (genStore.isGenerating) {
+  if (genStore.isGenerating || genStore.hasRunningBatches) {
     startTimeUpdate()
   }
 })
@@ -554,6 +793,69 @@ function reusePrompt(img) {
   }
 }
 
+// ========== 角色卡选择 ==========
+
+const selectedCharacter = ref(null)
+const showCharSelectDialog = ref(false)
+
+function getCharImageUrl(ch, isThumb = false) {
+  if (!ch.mainImageRelPath) return ''
+  const base = relPathToUrl(ch.mainImageRelPath)
+  return isThumb ? `${base}?thumb=400` : base
+}
+
+function selectCharacter(ch) {
+  selectedCharacter.value = ch
+  showCharSelectDialog.value = false
+  ElMessage.success(`已选择角色「${ch.name}」`)
+}
+
+function buildPromptWithCharacter(originalPrompt) {
+  if (!selectedCharacter.value) return originalPrompt
+  const ch = selectedCharacter.value
+  let charContext = `【角色卡信息】角色名：${ch.name}`
+  if (ch.basicInfo?.trim()) charContext += `；基础设定：${ch.basicInfo.trim()}`
+  if (ch.appearance?.trim()) charContext += `；外观描述：${ch.appearance.trim()}`
+  return `${charContext}\n\n【用户绘图需求】${originalPrompt}`
+}
+
+function getEffectiveReferenceImages() {
+  const refs = [...referenceImages.value]
+  // 如果选了角色卡，把主设图加到参考图最前面
+  if (selectedCharacter.value?.mainImageRelPath) {
+    const mainImgUrl = getCharImageUrl(selectedCharacter.value)
+    // 避免重复添加
+    if (!refs.some(r => r._isCharMain)) {
+      refs.unshift({
+        id: 'char-main-' + selectedCharacter.value.id,
+        dataUrl: null,
+        _isCharMain: true,
+        _relPath: selectedCharacter.value.mainImageRelPath,
+      })
+    }
+  }
+  return refs
+}
+
+async function prepareRefsForGenerate() {
+  const refs = [...referenceImages.value]
+  // 如果选了角色卡，把主设图读取为 dataUrl 并加到参考图最前面
+  if (selectedCharacter.value?.mainImageRelPath) {
+    try {
+      const dataUrl = await readImageAsBase64(selectedCharacter.value.mainImageRelPath)
+      // 避免重复
+      if (!refs.some(r => r._isCharMain)) {
+        refs.unshift({
+          id: 'char-main-' + selectedCharacter.value.id,
+          dataUrl,
+          _isCharMain: true,
+        })
+      }
+    } catch {}
+  }
+  return refs.length > 0 ? refs : null
+}
+
 // ========== 导入参考图 ==========
 
 function importReferenceImage() {
@@ -611,6 +913,11 @@ async function deleteGenerated(img) {
 
 // ========== 生成图片 ==========
 async function handleGenerate() {
+  // 累计任务模式走独立逻辑
+  if (themeStore.multiBatchMode) {
+    return handleGenerateMultiBatch()
+  }
+  successBannerDismissed.value = false
   const config = apiStore.getGenConfig(selectedSiteId.value, selectedModelId.value)
   if (!config) {
     ElMessage.error('请先选择站点和模型')
@@ -650,12 +957,16 @@ async function handleGenerate() {
       task.startTime = Date.now()
 
       try {
+        // 构建有效提示词和参考图（注入角色卡）
+        const effectivePrompt = buildPromptWithCharacter(genStore.prompt)
+        const effectiveRefs = await prepareRefsForGenerate()
+
         const result = await generateImage({
           baseUrl: config.baseUrl,
           apiKey: config.apiKey,
           model: config.model,
-          prompt: genStore.prompt,
-          referenceImages: referenceImages.value.length > 0 ? referenceImages.value : null,
+          prompt: effectivePrompt,
+          referenceImages: effectiveRefs,
           size: imageSize.value,
           apiType: config.apiType,
           customEndpoint: config.endpoint,
@@ -741,6 +1052,12 @@ async function handleGenerate() {
     stopTimeUpdate()
     if (genStore.taskStats.success > 0) {
       ElMessage.success(`成功生成 ${genStore.taskStats.success} 张图片`)
+      // 播放提示音
+      if (themeStore.workflowSoundEnabled) {
+        import('@/utils/notificationSound').then(({ playNotificationSound }) => {
+          playNotificationSound()
+        })
+      }
     }
   }
 }
@@ -757,6 +1074,183 @@ async function handleStop() {
     addLog('warn', '用户手动中止生成任务')
     ElMessage.success('已中止生成')
   } catch { /* 取消 */ }
+}
+
+// ========== 累计任务模式 ==========
+
+async function handleGenerateMultiBatch() {
+  successBannerDismissed.value = false
+  const config = apiStore.getGenConfig(selectedSiteId.value, selectedModelId.value)
+  if (!config) {
+    ElMessage.error('请先选择站点和模型')
+    return
+  }
+  if (!genStore.prompt.trim()) {
+    ElMessage.error('请输入提示词')
+    return
+  }
+  if (genStore.totalRunningCount >= 10) {
+    ElMessage.warning('当前已有 10 个任务同时执行中，请等待部分任务完成后再提交')
+    return
+  }
+
+  // 快照当前配置（后续修改不影响已提交的批次）
+  const batchPrompt = buildPromptWithCharacter(genStore.prompt)
+  const batchConfig = { ...config }
+  const batchRefImages = await prepareRefsForGenerate()
+  const batchSize = imageSize.value
+  const batchQuality = imageQuality.value
+  const batchConcurrency = Math.min(concurrency.value, generateCount.value)
+
+  const batch = genStore.createMultiBatch(generateCount.value, batchPrompt, batchConfig.siteName, batchConfig.model)
+  startTimeUpdate()
+
+  addLog('info', '[累计模式] 新批次已提交', {
+    prompt: batchPrompt,
+    site: batchConfig.siteName,
+    model: batchConfig.model,
+    count: generateCount.value,
+    concurrency: batchConcurrency,
+  })
+
+  // 异步执行，不阻塞 UI（允许用户继续提交下一批）
+  runMultiBatch(batch, batchConfig, batchPrompt, batchRefImages, batchSize, batchQuality, batchConcurrency)
+}
+
+async function runMultiBatch(batch, config, batchPrompt, batchRefImages, batchSize, batchQuality, batchConcurrency) {
+  const taskQueue = [...batch.tasks]
+  const running = []
+
+  async function runTask() {
+    while (taskQueue.length > 0) {
+      if (genStore.isMultiBatchStopped(batch.id)) return
+      const task = taskQueue.shift()
+      if (!task) return
+
+      // 等待全局并发槽位（所有批次合计不超过 10）
+      while (genStore.totalRunningCount >= 10) {
+        if (genStore.isMultiBatchStopped(batch.id)) return
+        await new Promise(r => setTimeout(r, 300))
+      }
+
+      task.status = 'running'
+      task.startTime = Date.now()
+
+      try {
+        const result = await generateImage({
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          model: config.model,
+          prompt: batchPrompt,
+          referenceImages: batchRefImages && batchRefImages.length > 0 ? batchRefImages : null,
+          size: batchSize,
+          apiType: config.apiType,
+          customEndpoint: config.endpoint,
+          quality: batchQuality,
+        })
+
+        if (genStore.isMultiBatchStopped(batch.id)) {
+          addLog('info', '批次已被中止，丢弃返回结果')
+          return
+        }
+
+        if (result.data && result.data.length > 0) {
+          for (const item of result.data) {
+            let dataUrl = ''
+            if (item.b64_json) {
+              dataUrl = toDataUrl(item.b64_json)
+            } else if (item.url) {
+              try {
+                dataUrl = await downloadImageAsBase64(item.url)
+              } catch (dlErr) {
+                addLog('warn', '图片下载失败，使用远程URL', dlErr.message)
+                dataUrl = item.url
+              }
+            }
+
+            if (genStore.isMultiBatchStopped(batch.id)) return
+
+            if (dataUrl) {
+              const imageRecord = {
+                id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+                name: `生成_${new Date().toLocaleString('zh-CN').replace(/[/:]/g, '-')}`,
+                dataUrl,
+                prompt: batchPrompt,
+                model: config.model,
+                siteName: config.siteName,
+                size: batchSize,
+                apiType: config.apiType,
+                hasReference: batchRefImages && batchRefImages.length > 0,
+                createdAt: new Date().toISOString(),
+                favorite: false,
+                album: '',
+              }
+              await galleryStore.addGeneratedImage(imageRecord)
+            }
+          }
+        }
+
+        task.status = 'success'
+        task.endTime = Date.now()
+        addLog('info', `[批次] 任务 #${task.id} 生成成功`)
+      } catch (err) {
+        if (genStore.isMultiBatchStopped(batch.id)) return
+        let errMsg = err.response?.data?.error?.message || err.message || '未知错误'
+        try {
+          if (/^[A-Za-z0-9+/=]{4,}$/.test(errMsg) && errMsg.length % 4 <= 1) {
+            const decoded = atob(errMsg)
+            if (/^[\x20-\x7E\u4e00-\u9fff\s]+$/.test(decoded)) errMsg = decoded
+          }
+        } catch { /* 不是 base64 */ }
+        task.status = 'failed'
+        task.endTime = Date.now()
+        task.error = errMsg
+        addLog('error', `[批次] 任务 #${task.id} 失败`, {
+          error: errMsg,
+          status: err.response?.status,
+          data: err.response?.data,
+        })
+      }
+    }
+  }
+
+  for (let i = 0; i < batchConcurrency; i++) {
+    running.push(runTask())
+  }
+
+  await Promise.all(running)
+
+  if (!genStore.isMultiBatchStopped(batch.id)) {
+    genStore.endMultiBatch(batch.id)
+    const successCount = batch.tasks.filter(t => t.status === 'success').length
+    if (successCount > 0) {
+      ElMessage.success(`批次完成，成功生成 ${successCount} 张图片`)
+      // 播放提示音
+      if (themeStore.workflowSoundEnabled) {
+        import('@/utils/notificationSound').then(({ playNotificationSound }) => {
+          playNotificationSound()
+        })
+      }
+    }
+  }
+
+  if (!genStore.hasRunningBatches) {
+    stopTimeUpdate()
+  }
+}
+
+function handleStopMultiBatch(batchId) {
+  genStore.stopMultiBatch(batchId)
+  addLog('warn', '用户手动中止批次任务')
+  if (!genStore.hasRunningBatches) {
+    stopTimeUpdate()
+  }
+}
+
+function formatBatchElapsed(batch) {
+  if (!batch.startTime) return '0 秒'
+  const end = batch.endTime || currentTime.value
+  return formatElapsed(end - batch.startTime)
 }
 </script>
 
@@ -1015,6 +1509,30 @@ async function handleStop() {
   color: #16a34a;
   font-size: 13px;
   font-weight: 500;
+}
+
+.success-banner-text {
+  flex: 1;
+}
+
+.success-banner-close {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+  flex-shrink: 0;
+}
+
+.success-banner-close:hover {
+  opacity: 1;
 }
 
 /* 头部 */
@@ -1453,5 +1971,314 @@ async function handleStop() {
 
 .generate-page--vertical .stats-row {
   min-width: 0;
+}
+
+/* ===== 批次卡片（累计任务模式） ===== */
+.batch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.batch-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  border-left: 3px solid var(--border-color);
+  transition: all var(--transition);
+}
+
+.batch-card--running {
+  border-left-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.04);
+}
+
+.batch-card--done {
+  border-left-color: #16a34a;
+}
+
+.batch-card--stopped {
+  border-left-color: #ef4444;
+  opacity: 0.75;
+}
+
+.batch-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--border-color);
+}
+
+.batch-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.batch-prompt {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-all;
+}
+
+.batch-elapsed {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  display: block;
+}
+
+.batch-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-stop-btn:not(:disabled) {
+  background: #ef4444 !important;
+  border-color: #ef4444 !important;
+  color: #fff !important;
+}
+
+.batch-stop-btn:not(:disabled):hover {
+  background: #dc2626 !important;
+  border-color: #dc2626 !important;
+}
+
+.batch-done-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tag--done {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+}
+
+.tag--stopped {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.batch-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 竖向布局兼容 */
+.generate-page--vertical .batch-list {
+  min-width: 0;
+}
+
+.generate-page--vertical .batch-card {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.status-elapsed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.clear-history-btn:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1) !important;
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
+}
+
+.clear-history-btn:not(:disabled):hover {
+  background: #ef4444 !important;
+  border-color: #ef4444 !important;
+  color: #fff !important;
+}
+
+/* ===== 角色卡选择 ===== */
+.char-select-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 18px;
+  border: 2px dashed var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.char-select-area:hover {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+}
+
+.char-selected-card {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent-color);
+  border-radius: var(--radius-sm);
+}
+
+.char-selected-img {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  border: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.char-selected-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.char-selected-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.char-selected-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* 角色卡选择弹窗 */
+.char-select-dialog-body {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.char-select-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+}
+
+.char-select-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.char-select-item:hover {
+  border-color: var(--accent-color);
+}
+
+.char-select-item--active {
+  border-color: var(--accent-color);
+  background: var(--accent-light);
+}
+
+.char-select-item-img {
+  width: 80px;
+  height: 100px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.char-select-item-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.char-select-item-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.char-select-item-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.char-select-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 30px;
+}
+
+/* ===== 拖拽上传高亮 ===== */
+.ref-upload--dragover {
+  border-color: var(--accent-color) !important;
+  background: var(--accent-light) !important;
+  color: var(--accent-color) !important;
+}
+
+.ref-list--dragover {
+  outline: 2px dashed var(--accent-color);
+  outline-offset: -2px;
+  background: var(--accent-light);
+  border-radius: var(--radius-sm);
+}
+
+/* 我的参考图拖拽上传 */
+.panel-empty--droppable {
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.panel-empty--dragover {
+  background: var(--accent-light) !important;
+  color: var(--accent-color) !important;
+  outline: 2px dashed var(--accent-color);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
+.panel-grid--dragover {
+  outline: 2px dashed var(--accent-color);
+  outline-offset: -2px;
+  background: var(--accent-light);
+  border-radius: var(--radius-sm);
 }
 </style>

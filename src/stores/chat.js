@@ -17,17 +17,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function init() {
     const loadedSites = await loadValue('chat-sites', [])
-    // 兼容老数据结构迁移
-    chatSites.value = loadedSites.map(site => {
-      if (site.models) return site
-      return {
-        id: site.id,
-        name: site.name,
-        baseUrl: site.baseUrl,
-        apiKey: site.apiKey,
-        models: site.model ? [{ id: genId('model'), name: site.model }] : []
-      }
-    })
+    chatSites.value = migrateSites(loadedSites)
 
     activeChatSiteId.value = await loadValue('chat-active-site', null)
     activeChatModelId.value = await loadValue('chat-active-model', null)
@@ -37,8 +27,7 @@ export const useChatStore = defineStore('chat', () => {
     sidebarCollapsed.value = await loadValue('chat-sidebar-collapsed', false)
 
     if (sessions.value.length === 0) createSession()
-    
-    // 初始化默认选择
+
     if (chatSites.value.length > 0) {
       if (!activeChatSiteId.value || !chatSites.value.find(s => s.id === activeChatSiteId.value)) {
         activeChatSiteId.value = chatSites.value[0].id
@@ -48,6 +37,32 @@ export const useChatStore = defineStore('chat', () => {
         activeChatModelId.value = site.models[0].id
       }
     }
+  }
+
+  // 老数据迁移：单 apiKey → keys 数组
+  function migrateSites(data) {
+    return data.map(site => {
+      if (site.keys) return site
+      const keyId = genId('key')
+      // 旧格式：{ id, name, baseUrl, apiKey, models/model }
+      let models = []
+      if (site.models && Array.isArray(site.models)) {
+        models = site.models.map(m => ({
+          id: m.id || genId('model'),
+          name: m.name || '',
+          keyId: m.keyId || keyId,
+        }))
+      } else if (site.model) {
+        models = [{ id: genId('model'), name: site.model, keyId }]
+      }
+      return {
+        id: site.id,
+        name: site.name,
+        baseUrl: site.baseUrl,
+        keys: [{ id: keyId, name: '默认', apiKey: site.apiKey || '' }],
+        models,
+      }
+    })
   }
 
   function saveConfig() {
@@ -67,12 +82,13 @@ export const useChatStore = defineStore('chat', () => {
       id: genId('site'),
       name: data.name,
       baseUrl: data.baseUrl.replace(/\/+$/, ''),
-      apiKey: data.apiKey,
-      models: []
+      keys: [],
+      models: [],
     }
     chatSites.value.push(site)
     if (!activeChatSiteId.value) activeChatSiteId.value = site.id
     saveConfig()
+    return site
   }
 
   function updateChatSite(id, data) {
@@ -80,7 +96,6 @@ export const useChatStore = defineStore('chat', () => {
     if (site) {
       site.name = data.name
       site.baseUrl = data.baseUrl.replace(/\/+$/, '')
-      site.apiKey = data.apiKey
       saveConfig()
     }
   }
@@ -95,11 +110,43 @@ export const useChatStore = defineStore('chat', () => {
     saveConfig()
   }
 
+  // --- Key 管理 ---
+  function addChatKey(siteId, data) {
+    const site = chatSites.value.find(s => s.id === siteId)
+    if (!site) return
+    site.keys.push({ id: genId('key'), name: data.name || '', apiKey: data.apiKey || '' })
+    saveConfig()
+  }
+
+  function updateChatKey(siteId, keyId, data) {
+    const site = chatSites.value.find(s => s.id === siteId)
+    const key = site?.keys.find(k => k.id === keyId)
+    if (key) {
+      if (data.name !== undefined) key.name = data.name
+      if (data.apiKey !== undefined) key.apiKey = data.apiKey
+      saveConfig()
+    }
+  }
+
+  function deleteChatKey(siteId, keyId) {
+    const site = chatSites.value.find(s => s.id === siteId)
+    if (!site) return
+    site.keys = site.keys.filter(k => k.id !== keyId)
+    for (const m of site.models) {
+      if (m.keyId === keyId) m.keyId = site.keys[0]?.id || null
+    }
+    saveConfig()
+  }
+
   // --- 模型管理 ---
-  function addChatModel(siteId, modelName) {
+  function addChatModel(siteId, data) {
     const site = chatSites.value.find(s => s.id === siteId)
     if (site) {
-      const newModel = { id: genId('model'), name: modelName }
+      const newModel = {
+        id: genId('model'),
+        name: data.name || data,
+        keyId: data.keyId || site.keys[0]?.id || null,
+      }
       site.models.push(newModel)
       if (!activeChatModelId.value && activeChatSiteId.value === siteId) {
         activeChatModelId.value = newModel.id
@@ -108,11 +155,16 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function updateChatModel(siteId, modelId, modelName) {
+  function updateChatModel(siteId, modelId, data) {
     const site = chatSites.value.find(s => s.id === siteId)
     const model = site?.models.find(m => m.id === modelId)
     if (model) {
-      model.name = modelName
+      if (typeof data === 'string') {
+        model.name = data
+      } else {
+        if (data.name !== undefined) model.name = data.name
+        if (data.keyId !== undefined) model.keyId = data.keyId
+      }
       saveConfig()
     }
   }
@@ -128,6 +180,26 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // --- 获取完整配置 ---
+  function getChatConfig(siteId, modelId) {
+    const site = chatSites.value.find(s => s.id === siteId)
+    const model = site?.models.find(m => m.id === modelId)
+    if (!site || !model) return null
+    const key = site.keys.find(k => k.id === model.keyId)
+    if (!key) return null
+    return {
+      baseUrl: site.baseUrl,
+      apiKey: key.apiKey,
+      model: model.name,
+      siteName: site.name,
+    }
+  }
+
+  function getChatKeyName(site, keyId) {
+    const k = site.keys.find(k => k.id === keyId)
+    return k ? (k.name || '(未命名)') : '无'
+  }
+
   // --- 会话管理 ---
   function createSession(title = '新对话') {
     const id = Date.now().toString()
@@ -136,6 +208,7 @@ export const useChatStore = defineStore('chat', () => {
     saveSessions()
     return id
   }
+
   function deleteSession(id) {
     sessions.value = sessions.value.filter(s => s.id !== id)
     if (activeSessionId.value === id) {
@@ -160,6 +233,7 @@ export const useChatStore = defineStore('chat', () => {
       saveSessions()
     }
   }
+
   function deleteMessage(sessionId, msgIndex) {
     const session = sessions.value.find(s => s.id === sessionId)
     if (session && session.messages) {
@@ -172,7 +246,6 @@ export const useChatStore = defineStore('chat', () => {
     const session = sessions.value.find(s => s.id === sessionId)
     if (session && session.messages.length > 0) {
       session.messages[session.messages.length - 1].content = content
-      // 注意：这里为了不卡顿，不调用 saveSessions()，我们在页面上流式结束后统一存一次盘
     }
   }
 
@@ -183,9 +256,11 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     chatSites, activeChatSiteId, activeChatModelId, sessions, activeSessionId, sidebarCollapsed,
-    init, createSession, deleteSession, renameSession, addMessage, deleteMessage, updateLastMessage, 
-    addChatSite, updateChatSite, deleteChatSite, 
+    init, createSession, deleteSession, renameSession, addMessage, deleteMessage, updateLastMessage,
+    addChatSite, updateChatSite, deleteChatSite,
+    addChatKey, updateChatKey, deleteChatKey,
     addChatModel, updateChatModel, deleteChatModel,
-    saveConfig, toggleSidebar, saveSessions 
+    getChatConfig, getChatKeyName,
+    saveConfig, toggleSidebar, saveSessions,
   }
 })

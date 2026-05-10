@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MioDraw</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #1a1a2e;
+      color: #e4e6eb;
+      font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      overflow: hidden;
+      -webkit-app-region: drag;
+    }
+    .logo {
+      width: 320px;
+      margin-bottom: 20px;
+    }
+    .logo img {
+      width: 100%;
+      height: auto;
+      object-fit: contain;
+    }
+    .app-name {
+      font-size: 28px;
+      font-weight: 700;
+      color: #818cf8;
+      margin-bottom: 8px;
+    }
+    .app-desc {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 32px;
+    }
+    .progress-container {
+      width: 240px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #818cf8, #6366f1);
+      border-radius: 2px;
+      transition: width 0.15s ease-out;
+    }
+    .status {
+      margin-top: 12px;
+      font-size: 11px;
+      color: #6b7280;
+      transition: opacity 0.3s;
+    }
+  </style>
+</head>
+<body>
+  <div class="logo">
+    <img src="./logo.png" alt="MioDraw" />
+  </div>
+  <div class="app-name">MioDraw</div>
+  <div class="app-desc">AI 绘图工作站</div>
+  <div class="progress-container">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+  <div class="status" id="statusText">正在加载...</div>
+
+  <script>
+    const bar = document.getElementById('progressBar')
+    const statusText = document.getElementById('statusText')
+
+    // 模拟渐进加载：前期快，后期慢，最终卡在96%等待主窗口ready
+    let progress = 0
+    let phase = 0 // 0=快速阶段 1=中速阶段 2=慢速阶段
+
+    const messages = [
+      { at: 5, text: '正在初始化...' },
+      { at: 20, text: '正在加载核心模块...' },
+      { at: 40, text: '正在准备渲染引擎...' },
+      { at: 60, text: '正在加载组件...' },
+      { at: 80, text: '正在初始化数据...' },
+      { at: 92, text: '即将完成...' },
+    ]
+
+    function updateStatus() {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (progress >= messages[i].at) {
+          statusText.textContent = messages[i].text
+          break
+        }
+      }
+    }
+
+    const timer = setInterval(() => {
+      if (progress < 30) {
+        // 快速阶段：0~30，每次+1.5~3
+        progress += 1.5 + Math.random() * 1.5
+      } else if (progress < 65) {
+        // 中速阶段：30~65，每次+0.8~1.5
+        progress += 0.8 + Math.random() * 0.7
+      } else if (progress < 90) {
+        // 慢速阶段：65~90，每次+0.3~0.6
+        progress += 0.3 + Math.random() * 0.3
+      } else if (progress < 96) {
+        // 极慢阶段：90~96，每次+0.1~0.2
+        progress += 0.1 + Math.random() * 0.1
+      }
+      // 96以上不再自动增长，等主窗口 ready 后直接跳到100
+
+      progress = Math.min(progress, 96)
+      bar.style.width = progress + '%'
+      updateStatus()
+    }, 50)
+
+    // 监听主进程发来的完成信号（如果有的话）
+    // 兜底：如果超过8秒还没关闭，直接走完
+    setTimeout(() => {
+      clearInterval(timer)
+      bar.style.width = '100%'
+      statusText.textContent = '加载完成'
+    }, 8000)
+  </script>
+</body>
+</html>

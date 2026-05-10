@@ -79,15 +79,35 @@
 
             <!-- 输入区 -->
             <div class="chat-input-area">
+              <!-- 已附加图片预览 -->
+              <div v-if="attachedImages.length > 0" class="attached-images-row">
+                <div v-for="img in attachedImages" :key="img.id" class="attached-thumb">
+                  <img :src="img.dataUrl" alt="" />
+                  <button class="attached-remove" @click="removeAttachedImage(img.id)">
+                    <el-icon :size="10"><Close /></el-icon>
+                  </button>
+                </div>
+                <div class="attached-hint">{{ attachedImages.length }} 张图片将随下次消息发送</div>
+              </div>
               <div class="input-row">
-                <el-input
-                  v-model="inputText"
-                  type="textarea"
-                  :rows="3"
-                  resize="none"
-                  placeholder="输入你想让 AI 帮忙写的内容，按 Ctrl+Enter 发送..."
-                  @keydown.ctrl.enter.prevent="handleSend"
-                />
+                <div class="input-col">
+                  <el-input
+                    v-model="inputText"
+                    type="textarea"
+                    :rows="3"
+                    resize="none"
+                    placeholder="输入你想让 AI 帮忙写的内容，按 Ctrl+Enter 发送..."
+                    @keydown.ctrl.enter.prevent="handleSend"
+                  />
+                  <div class="input-toolbar">
+                    <el-button text size="small" class="attach-btn" @click="selectAttachImage" :disabled="isRequesting">
+                      <el-icon><PictureFilled /></el-icon> 添加图片
+                    </el-button>
+                    <span v-if="refImages.length > 0" class="ref-hint">
+                      页面已有 {{ refImages.length }} 张参考图，一键优化时将自动附带
+                    </span>
+                  </div>
+                </div>
                 <div class="right-action-group">
                   <!-- 发送按钮 -->
                   <el-button v-if="!isRequesting" type="primary" class="send-btn" :disabled="!inputText.trim()" @click="handleSend">
@@ -101,11 +121,19 @@
                   <el-button class="optimize-btn" type="primary" plain size="small" @click="handleOneClickOptimize" :disabled="isRequesting">
                     <div class="optimize-btn-text">
                       <span>一键优化当前</span>
-                      <span>生图提示词</span>
+                      <span>{{ mode === 'workflow' ? '规划提示词' : '生图提示词' }}</span>
                     </div>
                   </el-button>
                 </div>
               </div>
+              <input
+                ref="attachFileInput"
+                type="file"
+                accept="image/*"
+                multiple
+                style="display: none"
+                @change="onAttachFileSelected"
+              />
             </div>
           </div>
         </div>
@@ -132,20 +160,29 @@ import { ref, computed, nextTick, watch } from 'vue'
 import { useApiStore } from '@/stores/api'
 import { useChatStore } from '@/stores/chat'
 import { useGenerationStore } from '@/stores/generation'
+import { useWorkflowStore } from '@/stores/workflow'
 import { sendChatMessageStream } from '@/utils/chatApi'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete, Edit, Position, Loading, DocumentCopy, DArrowLeft, DArrowRight, CircleClose, ChatDotRound } from '@element-plus/icons-vue'
+import { Plus, Delete, Edit, Position, Loading, DocumentCopy, DArrowLeft, DArrowRight, CircleClose, ChatDotRound, PictureFilled, Close } from '@element-plus/icons-vue'
 
 const visible = defineModel({ type: Boolean, default: false })
 const activeTab = ref('chat')
 
+const props = defineProps({
+  mode: { type: String, default: 'generate' }, // 'generate' | 'workflow'
+  refImages: { type: Array, default: () => [] },
+})
+
 const apiStore = useApiStore()
 const chatStore = useChatStore()
 const genStore = useGenerationStore()
+const workflowStore = useWorkflowStore()
 
 const inputText = ref('')
 const isRequesting = ref(false)
 const messagesContainer = ref(null)
+const attachedImages = ref([])
+const attachFileInput = ref(null)
 
 const chatRequestToken = ref(0)
 
@@ -163,6 +200,29 @@ function handleStopChat() {
   chatStore.saveSessions() // 存盘
 }
 
+function selectAttachImage() {
+  attachFileInput.value?.click()
+}
+
+function onAttachFileSelected(e) {
+  const files = Array.from(e.target.files || [])
+  for (const file of files) {
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      attachedImages.value.push({
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+        dataUrl: ev.target.result,
+      })
+    }
+    reader.readAsDataURL(file)
+  }
+  e.target.value = ''
+}
+
+function removeAttachedImage(id) {
+  attachedImages.value = attachedImages.value.filter(i => i.id !== id)
+}
+
 const currentSiteModels = computed(() => {
   const site = apiStore.sites.find(s => s.id === chatStore.selectedSiteId)
   return site?.models || []
@@ -172,9 +232,20 @@ const activeSession = computed(() => {
   return chatStore.sessions.find(s => s.id === chatStore.activeSessionId)
 })
 
-const SYSTEM_PROMPT = `你是一个专业的AI绘图提示词优化专家。
+const SYSTEM_PROMPT_GENERATE = `你是一个专业的AI绘图提示词优化专家。
 请根据用户的描述，扩展并优化为一段结构清晰、细节丰富、适合AI绘图模型理解的英文和中文两个版本的提示词，并且要方便用户复制（包含画面主体、环境背景、光影效果、画质要求等）。
-【严格要求】请直接输出优化后的提示词内容，绝对不要输出任何其他的解释说明或废话。方便用户复制，只在中文版提示词前面加上‘中文版：’，在英文版提示词前加上‘英文版：’`
+【严格要求】请直接输出优化后的提示词内容，绝对不要输出任何其他的解释说明或废话。方便用户复制，只在中文版提示词前面加上'中文版：'，在英文版提示词前加上'英文版：'`
+
+const SYSTEM_PROMPT_WORKFLOW = `你是一个专业的AI绘图项目创意总监。用户正在使用全栈AI工作流，需要你帮忙优化"初始规划提示词"。这个提示词不是直接发给绘图模型的，而是发给一个AI规划系统，由该系统理解用户意图后自动拆解为多张图片的创作计划并逐一生成。
+
+因此，你的优化方向应该侧重于：
+1. 清晰描述整体创作目标和主题，而非单张图片的画面细节
+2. 说明期望的图片数量、风格统一性、系列感等宏观需求
+3. 如果用户描述了多个场景或角色，帮忙梳理清楚彼此关系
+4. 可以补充合理的创意建议，比如色调统一、构图变化、叙事逻辑等
+5. 语言清晰自然即可，使用中文，不需要转成英文绘图提示词格式
+
+【严格要求】请直接输出优化后的规划提示词内容，不要输出解释说明或废话。`
 
 const presets = [
   { 
@@ -273,26 +344,38 @@ watch(visible, (val) => { if (val) scrollToBottom() })
 
 async function handleSend() {
   if (!inputText.value.trim() || isRequesting.value) return
-  await sendMessage(inputText.value)
+  const images = [...attachedImages.value]
+  attachedImages.value = []
+  await sendMessage(inputText.value, false, images)
   inputText.value = ''
 }
 
 async function handleOneClickOptimize() {
-  const currentPrompt = genStore.prompt.trim()
+  const isWorkflow = props.mode === 'workflow'
+  const currentPrompt = isWorkflow
+    ? workflowStore.config.initialPrompt.trim()
+    : genStore.prompt.trim()
+
   if (!currentPrompt) {
-    ElMessage.warning('当前生图提示词为空，请先在外部输入一些内容')
+    ElMessage.warning(isWorkflow ? '当前规划提示词为空，请先输入一些内容' : '当前生图提示词为空，请先在外部输入一些内容')
     return
   }
-  // 新建一个专用的优化对话
+
+  // 合并：助手内附加的图片 + 父页面的参考图
+  const allImages = [...attachedImages.value, ...props.refImages]
+  attachedImages.value = []
+
+  const label = isWorkflow ? 'AI生图工作流规划' : '生图'
+  const hasImages = allImages.length > 0
+  const imageHint = hasImages ? `（已附带 ${allImages.length} 张参考图，请结合参考图进行优化）` : ''
   chatStore.createSession(`优化: ${currentPrompt.slice(0, 10)}...`)
-  await sendMessage(`请帮我优化以下生图提示词：\n${currentPrompt}`, true)
+  await sendMessage(`请帮我优化以下${label}提示词${imageHint}：\n${currentPrompt}`, true, allImages)
 }
 
-async function sendMessage(userText, useSystemPrompt = false) {
-  const site = chatStore.chatSites.find(s => s.id === chatStore.activeChatSiteId)
-  const model = site?.models.find(m => m.id === chatStore.activeChatModelId)
+async function sendMessage(userText, useSystemPrompt = false, images = []) {
+  const chatConfig = chatStore.getChatConfig(chatStore.activeChatSiteId, chatStore.activeChatModelId)
 
-  if (!site || !model) {
+  if (!chatConfig) {
     ElMessage.error('请先在右上角选择对话站点和模型（或去设置页添加）')
     return
   }
@@ -306,19 +389,38 @@ async function sendMessage(userText, useSystemPrompt = false) {
 
   try {
     const msgsToSend = []
-    if (useSystemPrompt) msgsToSend.push({ role: 'system', content: SYSTEM_PROMPT })
+    if (useSystemPrompt) {
+      const sysPrompt = props.mode === 'workflow' ? SYSTEM_PROMPT_WORKFLOW : SYSTEM_PROMPT_GENERATE
+      msgsToSend.push({ role: 'system', content: sysPrompt })
+    }
     const history = activeSession.value.messages
     msgsToSend.push(...history)
+
+    // 如果有图片，将最后一条用户消息替换为多模态格式（不影响存储）
+    if (images.length > 0) {
+      const lastIdx = msgsToSend.length - 1
+      const lastMsg = msgsToSend[lastIdx]
+      if (lastMsg && lastMsg.role === 'user') {
+        const content = []
+        for (const img of images) {
+          if (img.dataUrl) {
+            content.push({ type: 'image_url', image_url: { url: img.dataUrl, detail: 'high' } })
+          }
+        }
+        content.push({ type: 'text', text: typeof lastMsg.content === 'string' ? lastMsg.content : userText })
+        msgsToSend[lastIdx] = { role: 'user', content }
+      }
+    }
 
     // ✨ 提前放入一条空的 AI 回复，用来装流式文本
     chatStore.addMessage(sessionId, 'assistant', '')
 
     const finalReply = await sendChatMessageStream({
-      baseUrl: site.baseUrl,
-      apiKey: site.apiKey,
-      model: model.name,
+      baseUrl: chatConfig.baseUrl,
+      apiKey: chatConfig.apiKey,
+      model: chatConfig.model,
       messages: msgsToSend,
-    }, 
+    },
     (currentText) => {
       // ✅ 打字机效果实时更新
       if (chatRequestToken.value === myToken) {
@@ -686,5 +788,86 @@ async function copyText(text) {
 .stop-btn:not(:disabled):hover {
   background: #dc2626 !important;
   border-color: #dc2626 !important;
+}
+
+/* ===== 图片附件 ===== */
+.attached-images-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.attached-thumb {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.attached-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attached-remove {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.attached-thumb:hover .attached-remove {
+  opacity: 1;
+}
+
+.attached-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.input-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.input-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.attach-btn {
+  padding: 2px 6px;
+  font-size: 12px;
+  color: var(--text-muted) !important;
+}
+
+.attach-btn:hover:not(:disabled) {
+  color: var(--accent-color) !important;
+}
+
+.ref-hint {
+  font-size: 11px;
+  color: var(--accent-color);
 }
 </style>

@@ -16,6 +16,16 @@ const routes = [
     component: () => import('@/pages/GalleryPage.vue'),
   },
   {
+    path: '/workflow',
+    name: 'Workflow',
+    component: () => import('@/pages/FullStackAIPage.vue'),
+  },
+  {
+    path: '/characters',
+    name: 'Characters',
+    component: () => import('@/pages/CharacterPage.vue'),
+  },
+  {
     path: '/settings',
     name: 'Settings',
     component: () => import('@/pages/SettingsPage.vue'),

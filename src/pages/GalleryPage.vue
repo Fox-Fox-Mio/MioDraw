@@ -69,9 +69,14 @@
           <el-icon><Folder /></el-icon>
           <span>{{ album }}</span>
           <span class="sidebar-count">{{ getAlbumCount(album) }}</span>
-          <button class="sidebar-item-del" @click.stop="deleteAlbum(album)">
-            <el-icon :size="12"><Close /></el-icon>
-          </button>
+          <div class="sidebar-item-actions" @click.stop>
+            <button class="sidebar-item-btn" @click="renameAlbum(album)" title="重命名">
+              <el-icon :size="12"><Edit /></el-icon>
+            </button>
+            <button class="sidebar-item-btn sidebar-item-btn--danger" @click="deleteAlbum(album)" title="删除">
+              <el-icon :size="12"><Close /></el-icon>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -95,6 +100,58 @@
         <div class="header-left">
           <h2>{{ currentTitle }}</h2>
         </div>
+        <div class="header-right" v-if="currentTab === 'generated' || currentTab === 'imported'">
+          <template v-if="batchMode">
+            <el-button size="small" @click="selectAllBatch">
+              {{ batchSelected.size === displayImages.length ? '取消全选' : '全选' }}
+            </el-button>
+            <el-button
+              size="small"
+              :disabled="batchSelected.size === 0"
+              @click="handleBatchExport"
+            >
+              <el-icon><Download /></el-icon> 导出 ({{ batchSelected.size }})
+            </el-button>
+            <el-button
+              v-if="currentTab === 'generated'"
+              size="small"
+              :disabled="batchSelected.size === 0"
+              @click="showBatchMove = true"
+            >
+              <el-icon><Folder /></el-icon> 移动到相册 ({{ batchSelected.size }})
+            </el-button>
+            <el-button
+              v-if="currentTab === 'generated' && filterAlbum !== '__favorite__'"
+              size="small"
+              :disabled="batchSelected.size === 0"
+              @click="handleBatchFav"
+            >
+              <el-icon><Star /></el-icon> 收藏 ({{ batchSelected.size }})
+            </el-button>
+            <el-button
+              v-if="currentTab === 'generated' && filterAlbum === '__favorite__'"
+              size="small"
+              :disabled="batchSelected.size === 0"
+              @click="handleBatchUnfav"
+            >
+              <el-icon><Star /></el-icon> 取消收藏 ({{ batchSelected.size }})
+            </el-button>
+            <el-button
+              size="small"
+              type="danger"
+              :disabled="batchSelected.size === 0"
+              @click="handleBatchDelete"
+            >
+              <el-icon><Delete /></el-icon> 删除 ({{ batchSelected.size }})
+            </el-button>
+            <el-button size="small" @click="toggleBatchMode">取消</el-button>
+          </template>
+          <template v-else>
+            <el-button size="small" @click="toggleBatchMode">
+              批量管理
+            </el-button>
+          </template>
+        </div>
       </div>
 
       <!-- 图片网格 -->
@@ -107,11 +164,17 @@
             v-for="img in displayImages"
             :key="img.id"
             class="gallery-item"
-            @click="openDetail(img)"
+            :class="{
+              'gallery-item--selected': batchMode && batchSelected.has(img.id),
+            }"
+            @click="batchMode ? toggleBatchSelect(img.id) : openDetail(img)"
           >
             <div class="item-img">
               <img :src="galleryStore.getDisplayUrl(img, true)" :alt="img.name" loading="lazy" />
               <span v-if="img.favorite" class="fav-badge">⭐</span>
+              <div v-if="batchMode" class="batch-check" :class="{ 'batch-check--active': batchSelected.has(img.id) }">
+                <el-icon :size="16"><CircleCheck /></el-icon>
+              </div>
             </div>
             <div class="item-info">
               <span class="item-name">{{ img.name }}</span>
@@ -161,6 +224,31 @@
         <el-button type="primary" @click="confirmMove">确定</el-button>
       </template>
     </el-dialog>
+    <!-- 批量移动相册弹窗 -->
+    <el-dialog v-model="showBatchMove" title="批量移动到相册" width="400px">
+      <div class="batch-move-body">
+        <div class="batch-move-info">
+          已选择 {{ batchSelected.size }} 张图片
+        </div>
+        <el-select v-model="batchMoveTarget" placeholder="选择目标相册" style="width: 100%">
+          <el-option
+            v-if="filterAlbum && filterAlbum !== '__favorite__'"
+            label="（移出相册 — 不归属任何相册）"
+            value=""
+          />
+          <el-option
+            v-for="album in albums"
+            :key="album"
+            :label="album"
+            :value="album"
+          />
+        </el-select>
+      </div>
+      <template #footer>
+        <el-button @click="showBatchMove = false">取消</el-button>
+        <el-button type="primary" :disabled="!batchMoveTarget && !(filterAlbum && filterAlbum !== '__favorite__')" @click="handleBatchMove">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -173,7 +261,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   PictureFilled, Edit, Star, Folder, FolderAdd,
   Download, Delete, Plus, Close, Upload,
-  DArrowLeft, DArrowRight, WarningFilled,
+  DArrowLeft, DArrowRight, WarningFilled, CircleCheck,
 } from '@element-plus/icons-vue'
 import ImageDetail from '@/components/ImageDetail.vue'
 
@@ -245,6 +333,11 @@ const displayImages = computed(() => {
 function selectFilter(tab, album) {
   currentTab.value = tab
   filterAlbum.value = tab === 'imported' ? '' : album
+  // 切换标签时退出批量模式
+  if (batchMode.value) {
+    batchMode.value = false
+    batchSelected.value = new Set()
+  }
 }
 
 function getAlbumCount(album) {
@@ -304,6 +397,44 @@ function createAlbum() {
   ElMessage.success(`相册「${name}」已创建`)
 }
 
+async function renameAlbum(oldName) {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入新的相册名称', '重命名相册', {
+      inputValue: oldName,
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      inputValidator: (val) => {
+        if (!val || !val.trim()) return '名称不能为空'
+        if (val.trim() === oldName) return true
+        if (albums.value.includes(val.trim())) return '该相册名称已存在'
+        return true
+      },
+    })
+    const newName = value.trim()
+    if (newName === oldName) return
+
+    // 更新所有图片的相册标记
+    for (const img of galleryStore.generatedImages) {
+      if (img.album === oldName) img.album = newName
+    }
+    galleryStore.saveGenerated()
+
+    // 更新持久化的相册列表
+    const idx = savedAlbums.value.indexOf(oldName)
+    if (idx >= 0) {
+      savedAlbums.value[idx] = newName
+      saveValue('albums', savedAlbums.value)
+    }
+
+    // 如果当前正在查看这个相册，更新筛选
+    if (filterAlbum.value === oldName) {
+      filterAlbum.value = newName
+    }
+
+    ElMessage.success(`已重命名为「${newName}」`)
+  } catch { /* 取消 */ }
+}
+
 async function deleteAlbum(album) {
   try {
     await ElMessageBox.confirm(`确定要删除相册「${album}」吗？相册内的图片不会被删除。`, '删除确认', {
@@ -327,6 +458,195 @@ async function deleteAlbum(album) {
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
   saveValue('gallery-sidebar-collapsed', sidebarCollapsed.value.toString())
+}
+
+// ========== 批量删除 ==========
+const batchMode = ref(false)
+const batchSelected = ref(new Set())
+
+function toggleBatchMode() {
+  batchMode.value = !batchMode.value
+  batchSelected.value = new Set()
+}
+
+function toggleBatchSelect(id) {
+  const newSet = new Set(batchSelected.value)
+  if (newSet.has(id)) {
+    newSet.delete(id)
+  } else {
+    newSet.add(id)
+  }
+  batchSelected.value = newSet
+}
+
+function selectAllBatch() {
+  if (batchSelected.value.size === displayImages.value.length) {
+    batchSelected.value = new Set()
+  } else {
+    batchSelected.value = new Set(displayImages.value.map(img => img.id))
+  }
+}
+
+async function handleBatchDelete() {
+  const count = batchSelected.value.size
+  if (count === 0) {
+    ElMessage.warning('请先选择要删除的图片')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除选中的 ${count} 张图片吗？此操作不可恢复。`,
+      '批量删除确认',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+    )
+
+    for (const id of batchSelected.value) {
+      if (currentTab.value === 'imported') {
+        await galleryStore.deleteImportedImage(id)
+      } else {
+        await galleryStore.deleteGeneratedImage(id)
+      }
+    }
+
+    ElMessage.success(`已删除 ${count} 张图片`)
+    batchSelected.value = new Set()
+    batchMode.value = false
+  } catch { /* 取消 */ }
+}
+
+// ========== 批量移动相册 ==========
+const showBatchMove = ref(false)
+const batchMoveTarget = ref('')
+
+async function handleBatchMove() {
+  const count = batchSelected.value.size
+  if (count === 0) {
+    ElMessage.warning('请先选择要移动的图片')
+    return
+  }
+
+  const target = batchMoveTarget.value
+
+  // 检查是否有图片已经在其他相册中
+  if (target) {
+    const alreadyInAlbum = []
+    for (const id of batchSelected.value) {
+      const img = galleryStore.generatedImages.find(i => i.id === id)
+      if (img && img.album && img.album !== target) {
+        alreadyInAlbum.push(img)
+      }
+    }
+
+    if (alreadyInAlbum.length > 0) {
+      try {
+        await ElMessageBox.confirm(
+          `选中的图片中有 ${alreadyInAlbum.length} 张已归属其他相册，确定要统一移动到「${target}」吗？`,
+          '移动确认',
+          { confirmButtonText: '确定移动', cancelButtonText: '取消', type: 'warning' }
+        )
+      } catch {
+        return
+      }
+    }
+  }
+
+  for (const id of batchSelected.value) {
+    const img = galleryStore.generatedImages.find(i => i.id === id)
+    if (img) {
+      img.album = target
+    }
+  }
+  galleryStore.saveGenerated()
+
+  if (target) {
+    ElMessage.success(`已将 ${count} 张图片移动到「${target}」`)
+  } else {
+    ElMessage.success(`已将 ${count} 张图片移出相册`)
+  }
+
+  showBatchMove.value = false
+  batchSelected.value = new Set()
+  batchMode.value = false
+  batchMoveTarget.value = ''
+}
+
+// ========== 批量收藏 / 取消收藏 ==========
+
+function handleBatchFav() {
+  const count = batchSelected.value.size
+  if (count === 0) {
+    ElMessage.warning('请先选择要收藏的图片')
+    return
+  }
+
+  for (const id of batchSelected.value) {
+    const img = galleryStore.generatedImages.find(i => i.id === id)
+    if (img && !img.favorite) {
+      img.favorite = true
+    }
+  }
+  galleryStore.saveGenerated()
+
+  ElMessage.success(`已收藏 ${count} 张图片`)
+  batchSelected.value = new Set()
+  batchMode.value = false
+}
+
+function handleBatchUnfav() {
+  const count = batchSelected.value.size
+  if (count === 0) {
+    ElMessage.warning('请先选择要取消收藏的图片')
+    return
+  }
+
+  for (const id of batchSelected.value) {
+    const img = galleryStore.generatedImages.find(i => i.id === id)
+    if (img && img.favorite) {
+      img.favorite = false
+    }
+  }
+  galleryStore.saveGenerated()
+
+  ElMessage.success(`已取消收藏 ${count} 张图片`)
+  batchSelected.value = new Set()
+  batchMode.value = false
+}
+
+// ========== 批量导出 ==========
+
+async function handleBatchExport() {
+  const count = batchSelected.value.size
+  if (count === 0) {
+    ElMessage.warning('请先选择要导出的图片')
+    return
+  }
+
+  const selectedImages = displayImages.value.filter(img => batchSelected.value.has(img.id))
+  const relPaths = selectedImages.map(img => img.relPath).filter(Boolean)
+  const names = selectedImages.map(img => img.name || 'image')
+
+  if (relPaths.length === 0) {
+    ElMessage.warning('选中的图片无可导出的文件')
+    return
+  }
+
+  try {
+    const result = await window.electronAPI.batchExportImages({ relPaths, names })
+    if (result.canceled) return
+    if (result.success) {
+      ElMessage.success(`已导出 ${result.exported} 张图片`)
+      if (result.errors?.length > 0) {
+        ElMessage.warning(`${result.errors.length} 张导出失败`)
+      }
+      batchSelected.value = new Set()
+      batchMode.value = false
+    } else {
+      ElMessage.error(result.error || '导出失败')
+    }
+  } catch (err) {
+    ElMessage.error('导出失败: ' + (err.message || '未知错误'))
+  }
 }
 </script>
 
@@ -449,8 +769,19 @@ function toggleSidebar() {
   color: white;
 }
 
-.sidebar-item-del {
+.sidebar-item-actions {
   display: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.sidebar-item:hover .sidebar-item-actions {
+  display: flex;
+}
+
+.sidebar-item-btn {
   width: 20px;
   height: 20px;
   border: none;
@@ -458,17 +789,17 @@ function toggleSidebar() {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
+  display: flex;
   align-items: center;
   justify-content: center;
-  margin-left: 4px;
-  flex-shrink: 0;
 }
 
-.sidebar-item:hover .sidebar-item-del {
-  display: flex;
+.sidebar-item-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent-color);
 }
 
-.sidebar-item-del:hover {
+.sidebar-item-btn--danger:hover {
   background: rgba(239, 68, 68, 0.15);
   color: #ef4444;
 }
@@ -810,5 +1141,68 @@ function toggleSidebar() {
 .detail-actions .el-button {
   flex: 1;
   min-width: calc(50% - 4px);
+}
+
+/* ===== 批量删除 ===== */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gallery-item--selected {
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 0 0 2px var(--accent-light);
+}
+
+.batch-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  background: rgba(0, 0, 0, 0.3);
+  color: rgba(255, 255, 255, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  transition: all 0.2s;
+}
+
+.batch-check--active {
+  border-color: var(--accent-color);
+  background: var(--accent-color);
+  color: white;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.header-right .el-button--danger:not(:disabled) {
+  background: #ef4444 !important;
+  border-color: #ef4444 !important;
+  color: #fff !important;
+}
+
+.header-right .el-button--danger:not(:disabled):hover {
+  background: #dc2626 !important;
+  border-color: #dc2626 !important;
+}
+
+.gallery-item--disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.header-right .el-button--warning:not(:disabled) {
+  background: #f59e0b !important;
+  border-color: #f59e0b !important;
+  color: #fff !important;
+}
+
+.header-right .el-button--warning:not(:disabled):hover {
+  background: #d97706 !important;
+  border-color: #d97706 !important;
 }
 </style>

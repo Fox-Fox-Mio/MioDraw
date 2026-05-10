@@ -19,6 +19,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // AI 放大
   upscaleImage: (options) => ipcRenderer.invoke('upscale-image', options),
 
+  // 背景去除
+  removeBg: (options) => ipcRenderer.invoke('remove-bg', options),
+
+  // 模型管理
+  checkModelExists: (modelName) => ipcRenderer.invoke('check-model-exists', modelName),
+  downloadModel: (options) => {
+    const { url, modelName, onProgress } = options
+    // 监听进度
+    const progressHandler = (e, data) => {
+      if (data.modelName === modelName && onProgress) {
+        onProgress(data.downloaded, data.total)
+      }
+    }
+    ipcRenderer.on('model-download-progress', progressHandler)
+
+    return ipcRenderer.invoke('download-model', { url, modelName }).finally(() => {
+      ipcRenderer.removeListener('model-download-progress', progressHandler)
+    })
+  },
+
+  // 文档解析
+  parseDocument: (options) => ipcRenderer.invoke('parse-document', options),
+
+  // 批量导出图片
+  batchExportImages: (options) => ipcRenderer.invoke('batch-export-images', options),
+
   // 数据目录
   getDataDir: () => ipcRenderer.invoke('get-data-dir'),
   selectDataDir: () => ipcRenderer.invoke('select-data-dir'),

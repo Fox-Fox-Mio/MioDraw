@@ -1,6 +1,6 @@
 {
   "name": "mio-draw",
-  "version": "0.9.3",
+  "version": "1.0.0",
   "description": "澪绘MioDraw - 本地AI绘图工具",
   "main": "electron/main.cjs",
   "private": true,
@@ -41,15 +41,21 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "public/icon.ico"
@@ -75,6 +81,7 @@
     "axios": "^1.15.2",
     "better-sqlite3": "^12.9.0",
     "element-plus": "^2.13.7",
+    "mammoth": "^1.12.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.33",
     "vue-router": "^5.0.6"

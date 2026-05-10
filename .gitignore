@@ -30,6 +30,10 @@ out/
 build/
 coverage/
 
+# ⚠️ 忽略背景去除引擎（体积太大）
+resources/bg-remover/python/
+resources/bg-remover/models/
+
 # ⚠️ 忽略外置的 AI 引擎（体积太大，GitHub 不让传，让用户自己下载或放 Release 里）
 resources/upscaler/realesrgan-ncnn-vulkan.exe
 resources/upscaler/vcomp140.dll
@@ -42,3 +46,7 @@ encrypt-tool.cjs
 # 用户本地数据（防意外）
 data/
 *.sqlite
+
+# 系统文件
+Thumbs.db
+Desktop.ini

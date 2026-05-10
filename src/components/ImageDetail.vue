@@ -9,44 +9,75 @@
     <div class="detail-content" v-if="image">
       <div class="detail-img">
         <img :src="galleryStore.getDisplayUrl(image)" :alt="image.name" />
+        <button class="detail-img-zoom" @click="openFullPreview">
+          <el-icon :size="18"><ZoomIn /></el-icon>
+        </button>
       </div>
+
+      <!-- 大图预览 -->
+      <el-dialog
+        v-model="fullPreviewVisible"
+        title="图片预览"
+        width="auto"
+        top="3vh"
+        append-to-body
+        :close-on-click-modal="true"
+      >
+        <div class="full-preview-content">
+          <img :src="galleryStore.getDisplayUrl(image)" :alt="image.name" />
+        </div>
+      </el-dialog>
       <div class="detail-meta">
         <div class="meta-section" v-if="type === 'generated'">
           <h4>生成信息</h4>
-          <div class="meta-row">
-            <span class="meta-label">模型</span>
-            <span class="meta-value">{{ image.model || '-' }}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-label">站点</span>
-            <span class="meta-value">{{ image.siteName || '-' }}</span>
-          </div>
-          
-          <!-- 常规尺寸显示 -->
-          <div class="meta-row" v-if="!image.isUpscaled">
-            <span class="meta-label">尺寸</span>
-            <span class="meta-value">{{ image.size || '-' }}</span>
-          </div>
-          <!-- 超分后的尺寸显示 -->
-          <template v-else>
+          <!-- 工作流生成的图片简化显示 -->
+          <template v-if="image.isFromWorkflow || image.planDescription || image.workflowScore">
             <div class="meta-row">
-              <span class="meta-label">原图分辨率</span>
-              <span class="meta-value">{{ image.originalSize || '-' }}</span>
+              <span class="meta-label">来源</span>
+              <span class="meta-value">通过工作流生成</span>
             </div>
             <div class="meta-row">
-              <span class="meta-label">超分后分辨率</span>
-              <span class="meta-value" style="color: var(--accent-color)">{{ image.size || '-' }}</span>
+              <span class="meta-label">生成时间</span>
+              <span class="meta-value">{{ formatDateTime(image.createdAt) }}</span>
             </div>
           </template>
+          <!-- 普通生成的图片完整显示 -->
+          <template v-else>
+            <div class="meta-row">
+              <span class="meta-label">模型</span>
+              <span class="meta-value">{{ image.model || '-' }}</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">站点</span>
+              <span class="meta-value">{{ image.siteName || '-' }}</span>
+            </div>
+            
+            <!-- 常规尺寸显示 -->
+            <div class="meta-row" v-if="!image.isUpscaled">
+              <span class="meta-label">尺寸</span>
+              <span class="meta-value">{{ image.size || '-' }}</span>
+            </div>
+            <!-- 超分后的尺寸显示 -->
+            <template v-else>
+              <div class="meta-row">
+                <span class="meta-label">原图分辨率</span>
+                <span class="meta-value">{{ image.originalSize || '-' }}</span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-label">超分后分辨率</span>
+                <span class="meta-value" style="color: var(--accent-color)">{{ image.size || '-' }}</span>
+              </div>
+            </template>
 
-          <div class="meta-row">
-            <span class="meta-label">参考图</span>
-            <span class="meta-value">{{ image.hasReference ? '是' : '否' }}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-label">生成时间</span>
-            <span class="meta-value">{{ formatDateTime(image.createdAt) }}</span>
-          </div>
+            <div class="meta-row">
+              <span class="meta-label">参考图</span>
+              <span class="meta-value">{{ image.hasReference ? '是' : '否' }}</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">生成时间</span>
+              <span class="meta-value">{{ formatDateTime(image.createdAt) }}</span>
+            </div>
+          </template>
         </div>
         <div class="meta-section" v-else>
           <h4>图片信息</h4>
@@ -99,6 +130,29 @@
             </el-button>
           </div>
 
+          <!-- 背景去除按钮 -->
+          <div class="upscale-row" v-if="type === 'generated'">
+            <el-button
+              type="success"
+              plain
+              class="upscale-btn-main"
+              @click="handleRemoveBg"
+              :loading="isRemovingBg"
+            >
+              <el-icon v-if="!isRemovingBg"><MagicStick /></el-icon>
+              {{ isRemovingBg ? '正在去除背景...' : '一键去除背景' }}
+            </el-button>
+            <el-button
+              type="success"
+              plain
+              class="upscale-btn-setting"
+              @click="showBgRemoveSettings = true"
+              :disabled="isRemovingBg"
+            >
+              <el-icon><Setting /></el-icon>
+            </el-button>
+          </div>
+
           <el-button @click="handleExport">
             <el-icon><Download /></el-icon> 导出
           </el-button>
@@ -129,16 +183,44 @@
         <el-button type="primary" @click="saveUpscaleSettings">保存</el-button>
       </template>
     </el-dialog>
+    <!-- 背景去除设置弹窗 -->
+    <el-dialog v-model="showBgRemoveSettings" title="背景去除模型配置" width="420px" append-to-body>
+      <el-form label-position="top">
+        <el-form-item label="选择背景去除模型">
+          <el-select v-model="bgRemoveModel" style="width: 100%">
+            <el-option label="isnet-anime (二次元插画推荐)" value="isnet-anime" />
+            <el-option label="isnet-general-use (通用场景推荐)" value="isnet-general-use" />
+            <el-option label="u2net (经典通用模型)" value="u2net" />
+            <el-option label="u2netp (轻量快速版)" value="u2netp" />
+            <el-option label="u2net_human_seg (真人分割专用)" value="u2net_human_seg" />
+            <el-option label="silueta (超轻量模型)" value="silueta" />
+          </el-select>
+        </el-form-item>
+        <div style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+          二次元插画/Logo 推荐使用 isnet-anime，真人照片推荐 u2net_human_seg，通用场景推荐 isnet-general-use。
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="showBgRemoveSettings = false">取消</el-button>
+        <el-button type="primary" @click="saveBgRemoveSettings">保存</el-button>
+      </template>
+    </el-dialog>
   </el-dialog>
 </template>
 
 <script setup>
 import { useGalleryStore } from '@/stores/gallery'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit, Star, Folder, Download, Delete, MagicStick, Setting } from '@element-plus/icons-vue'
+import { Edit, Star, Folder, Download, Delete, MagicStick, Setting, ZoomIn } from '@element-plus/icons-vue'
 import { ref } from 'vue'
 
 const galleryStore = useGalleryStore()
+
+const fullPreviewVisible = ref(false)
+
+function openFullPreview() {
+  fullPreviewVisible.value = true
+}
 
 const visible = defineModel('visible', { type: Boolean, default: false })
 const props = defineProps({
@@ -176,7 +258,7 @@ function handleToggleFav() {
   }
 }
 
-import { exportImage, upscaleImage } from '@/utils/imageStorage' //
+import { exportImage, upscaleImage, removeBgImage } from '@/utils/imageStorage'
 
 async function handleExport() {
   if (props.image.relPath) {
@@ -247,6 +329,75 @@ function saveUpscaleSettings() {
   ElMessage.success('超分配置已保存')
 }
 const isUpscaling = ref(false)
+
+const isRemovingBg = ref(false)
+const showBgRemoveSettings = ref(false)
+const bgRemoveModel = ref('u2net')
+
+// 初始化读取本地配置
+try {
+  const savedBg = localStorage.getItem('bg-remove-model')
+  if (savedBg) bgRemoveModel.value = savedBg
+  else bgRemoveModel.value = 'u2net'
+} catch { /* ignore */ }
+
+async function handleRemoveBg() {
+  if (!props.image.relPath) {
+    ElMessage.warning('这张图片无法处理 (可能数据未就绪，请稍后再试)')
+    return
+  }
+
+  // 检查模型文件是否存在
+  try {
+    const check = await window.electronAPI.checkModelExists(bgRemoveModel.value)
+    if (!check.exists) {
+      ElMessage.info('首次使用需要下载模型文件')
+      if (window.__triggerModelDownload) {
+        window.__triggerModelDownload(bgRemoveModel.value)
+      }
+      return
+    }
+  } catch {}
+
+  isRemovingBg.value = true
+
+  try {
+    const result = await removeBgImage(props.image.relPath, bgRemoveModel.value)
+
+    // 获取原图尺寸信息
+    const origSize = props.image.size || '未知'
+
+    const newImageRecord = {
+      id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+      name: `${props.image.name}_去背景`,
+      relPath: result.relPath,
+      prompt: props.image.prompt || '',
+      model: props.image.model || '',
+      siteName: props.image.siteName || '',
+      size: origSize,
+      apiType: props.image.apiType || '',
+      hasReference: props.image.hasReference || false,
+      createdAt: new Date().toISOString(),
+      favorite: props.image.favorite || false,
+      album: props.image.album || '',
+      isBgRemoved: true,
+    }
+
+    await galleryStore.addGeneratedImage(newImageRecord)
+    ElMessage.success('背景去除成功，已保存到图库')
+  } catch (err) {
+    ElMessage.error(err.message || '背景去除失败，请检查引擎是否已正确安装')
+    console.error('背景去除错误:', err)
+  } finally {
+    isRemovingBg.value = false
+  }
+}
+
+function saveBgRemoveSettings() {
+  localStorage.setItem('bg-remove-model', bgRemoveModel.value)
+  showBgRemoveSettings.value = false
+  ElMessage.success('背景去除配置已保存')
+}
 
 async function handleUpscale() {
   if (!props.image.relPath) {
@@ -397,5 +548,48 @@ async function handleUpscale() {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+
+/* 放大按钮 */
+.detail-img {
+  position: relative;
+}
+
+.detail-img-zoom {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  z-index: 2;
+}
+
+.detail-img-zoom:hover {
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  transform: scale(1.1);
+}
+
+/* 大图预览 */
+.full-preview-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.full-preview-content img {
+  max-width: 90vw;
+  max-height: 80vh;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
 }
 </style>

@@ -33,7 +33,7 @@ async function proxyRequest(url, apiKey, body) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
-    timeout: 300000,
+    timeout: 250000,
   })
 
   console.log('===== 收到响应 =====')
@@ -60,7 +60,7 @@ async function proxyFormDataRequest(url, apiKey, fields, files) {
     },
     fields,
     files,
-    timeout: 300000,
+    timeout: 250000,
   })
 
   if (response.status >= 400) {

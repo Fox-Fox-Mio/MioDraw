@@ -26,6 +26,10 @@
         >
           <el-icon :size="18"><component :is="item.icon" /></el-icon>
           <span>{{ item.label }}</span>
+          <span
+            v-if="item.path === '/workflow' && workflowStore.isRunning"
+            class="nav-running-dot"
+          ></span>
         </router-link>
       </nav>
 
@@ -50,13 +54,17 @@
 
 <script setup>
 import { useThemeStore } from '@/stores/theme'
-import { Brush, PictureFilled, Setting, Sunny, Moon } from '@element-plus/icons-vue'
+import { useWorkflowStore } from '@/stores/workflow'
+import { Brush, PictureFilled, Setting, Sunny, Moon, MagicStick, User } from '@element-plus/icons-vue'
 
 const themeStore = useThemeStore()
+const workflowStore = useWorkflowStore()
 
 const navItems = [
   { path: '/generate', label: '生成', icon: Brush },
   { path: '/gallery', label: '图库', icon: PictureFilled },
+  { path: '/workflow', label: 'AI工作流', icon: MagicStick },
+  { path: '/characters', label: '角色卡', icon: User },
   { path: '/settings', label: '设置', icon: Setting },
 ]
 </script>
@@ -141,5 +149,20 @@ const navItems = [
   flex: 1;
   overflow-y: auto;
   padding: 20px 24px;
+}
+
+.nav-running-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #16a34a;
+  box-shadow: 0 0 6px rgba(22, 163, 74, 0.6);
+  animation: nav-pulse 1.5s ease-in-out infinite;
+  margin-left: -2px;
+}
+
+@keyframes nav-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(22, 163, 74, 0.6); }
+  50% { opacity: 0.4; box-shadow: 0 0 2px rgba(22, 163, 74, 0.2); }
 }
 </style>
