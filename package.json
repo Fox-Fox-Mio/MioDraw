@@ -35,6 +35,16 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/bg-remover",
+        "to": "bg-remover",
+        "filter": [
+          "python/**/*",
+          "run_rembg.py",
+          "models/u2net.onnx",
+          "models/u2netp.onnx"
+        ]
       }
     ],
     "win": {
