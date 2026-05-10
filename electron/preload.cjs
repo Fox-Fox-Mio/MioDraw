@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 模型管理
   checkModelExists: (modelName) => ipcRenderer.invoke('check-model-exists', modelName),
+  deleteModelFile: (modelName) => ipcRenderer.invoke('delete-model-file', modelName),
   downloadModel: (options) => {
     const { url, modelName, onProgress } = options
     // 监听进度

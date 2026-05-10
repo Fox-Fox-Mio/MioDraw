@@ -7,7 +7,7 @@
   >
     <div class="dl-body">
       <div class="dl-intro">
-        首次使用其他背景去除模型需要下载对应的 AI 模型文件。请选择需要的模型和下载源。软件已自带 u2net 模型，无需额外下载。
+        首次使用其他背景去除模型需要下载对应的 AI 模型文件。请选择需要的模型和下载源。已安装的模型可以点击右侧「删除」按钮卸载以释放空间。
       </div>
 
       <!-- 模型选择 -->
@@ -31,11 +31,19 @@
             <div class="dl-model-info">
               <span class="dl-model-name">
                 {{ m.name }}
-                <span v-if="m.builtin" class="dl-model-builtin-tag">已内置</span>
+                <span v-if="m.builtin" class="dl-model-builtin-tag">已安装</span>
               </span>
               <span class="dl-model-desc">{{ m.desc }}</span>
             </div>
             <span class="dl-model-size">{{ m.size }}</span>
+            <el-button
+              v-if="modelInstalledMap[m.id]"
+              text type="danger" size="small"
+              class="dl-model-delete-btn"
+              @click.prevent.stop="handleDeleteModel(m)"
+            >
+              删除
+            </el-button>
           </label>
         </div>
       </div>
@@ -101,37 +109,55 @@ const props = defineProps({
   requiredModel: { type: String, default: '' },
 })
 
-const modelOptions = [
-  { id: 'u2net', name: 'u2net', desc: '经典通用模型', size: '~170MB', builtin: true },
-  { id: 'isnet-anime', name: 'isnet-anime', desc: '二次元插画推荐', size: '~170MB', builtin: false },
-  { id: 'isnet-general-use', name: 'isnet-general-use', desc: '通用场景推荐', size: '~170MB', builtin: false },
-  { id: 'u2netp', name: 'u2netp', desc: '轻量快速版', size: '~4MB', builtin: true },
-  { id: 'u2net_human_seg', name: 'u2net_human_seg', desc: '真人分割专用', size: '~170MB', builtin: false },
-  { id: 'silueta', name: 'silueta', desc: '超轻量模型', size: '~170MB', builtin: false },
+const modelOptionsBase = [
+  { id: 'u2net', name: 'u2net', desc: '经典通用模型', size: '~170MB', defaultBuiltin: false },
+  { id: 'isnet-anime', name: 'isnet-anime', desc: '二次元插画推荐', size: '~170MB', defaultBuiltin: false },
+  { id: 'isnet-general-use', name: 'isnet-general-use', desc: '通用场景推荐', size: '~170MB', defaultBuiltin: false },
+  { id: 'u2netp', name: 'u2netp', desc: '轻量快速版', size: '~4MB', defaultBuiltin: true },
+  { id: 'u2net_human_seg', name: 'u2net_human_seg', desc: '真人分割专用', size: '~170MB', defaultBuiltin: false },
+  { id: 'silueta', name: 'silueta', desc: '超轻量模型', size: '~170MB', defaultBuiltin: false },
 ]
+
+const modelOptions = computed(() =>
+  modelOptionsBase.map(m => ({
+    ...m,
+    builtin: m.defaultBuiltin && modelInstalledMap.value[m.id],
+  }))
+)
 
 const selectedModels = ref([])
 const downloadSource = ref('mirror')
 
-const isAutoDownloadSource = computed(() =>
-  downloadSource.value === 'mirror' || downloadSource.value === 'github'
-)
+const modelInstalledMap = ref({})
 
-// 弹窗打开时初始化
-watch(visible, (val) => {
+// 弹窗打开时检查每个模型是否已安装
+watch(visible, async (val) => {
   if (val) {
     selectedModels.value = []
     if (props.requiredModel) {
-      const opt = modelOptions.find(m => m.id === props.requiredModel)
+      const opt = modelOptionsBase.find(m => m.id === props.requiredModel)
       if (opt && !opt.builtin) {
         selectedModels.value = [props.requiredModel]
+      }
+    }
+    // 检查已安装状态
+    for (const m of modelOptionsBase) {
+      try {
+        const result = await window.electronAPI.checkModelExists(m.id)
+        modelInstalledMap.value[m.id] = result.exists
+      } catch {
+        modelInstalledMap.value[m.id] = false
       }
     }
   }
 })
 
+const isAutoDownloadSource = computed(() =>
+  downloadSource.value === 'mirror' || downloadSource.value === 'github'
+)
+
 function toggleModel(id, checked) {
-  const opt = modelOptions.find(m => m.id === id)
+  const opt = modelOptions.value.find(m => m.id === id)
   if (opt?.builtin) return
   if (checked) {
     if (!selectedModels.value.includes(id)) {
@@ -158,6 +184,39 @@ function handleStart() {
     source: downloadSource.value,
   })
   visible.value = false
+}
+
+// 弹窗重新打开时会自动刷新安装状态（通过 watch visible）
+// 但如果需要在不关闭弹窗的情况下刷新，可以手动调用：
+async function refreshInstalledStatus() {
+  for (const m of modelOptionsBase) {
+    try {
+      const result = await window.electronAPI.checkModelExists(m.id)
+      modelInstalledMap.value[m.id] = result.exists
+    } catch {
+      modelInstalledMap.value[m.id] = false
+    }
+  }
+}
+
+defineExpose({ refreshInstalledStatus })
+
+async function handleDeleteModel(m) {
+  try {
+    const { ElMessageBox, ElMessage } = await import('element-plus')
+    await ElMessageBox.confirm(
+      `确定要删除模型「${m.name}」吗？删除后如需使用该模型需要重新下载。`,
+      '删除模型',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+    )
+    const result = await window.electronAPI.deleteModelFile(m.id)
+    if (result.success) {
+      modelInstalledMap.value[m.id] = false
+      ElMessage.success(`模型「${m.name}」已删除`)
+    } else {
+      ElMessage.error(result.error || '删除失败')
+    }
+  } catch { /* 取消 */ }
 }
 </script>
 
@@ -291,5 +350,10 @@ function handleStart() {
   line-height: 1.5;
   padding-top: 8px;
   border-top: 1px dashed var(--border-color);
+}
+
+.dl-model-delete-btn {
+  flex-shrink: 0;
+  margin-left: 4px;
 }
 </style>

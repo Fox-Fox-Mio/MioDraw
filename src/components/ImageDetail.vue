@@ -199,6 +199,13 @@
         <div style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
           二次元插画/Logo 推荐使用 isnet-anime，真人照片推荐 u2net_human_seg，通用场景推荐 isnet-general-use。
         </div>
+        <el-button
+          size="small"
+          style="margin-top: 12px;"
+          @click="openModelDownloadDialog"
+        >
+          <el-icon><Download /></el-icon> 下载 / 删除模型
+        </el-button>
       </el-form>
       <template #footer>
         <el-button @click="showBgRemoveSettings = false">取消</el-button>
@@ -397,6 +404,13 @@ function saveBgRemoveSettings() {
   localStorage.setItem('bg-remove-model', bgRemoveModel.value)
   showBgRemoveSettings.value = false
   ElMessage.success('背景去除配置已保存')
+}
+
+function openModelDownloadDialog() {
+  showBgRemoveSettings.value = false
+  if (window.__triggerModelDownload) {
+    window.__triggerModelDownload('')
+  }
 }
 
 async function handleUpscale() {

@@ -688,6 +688,23 @@ ipcMain.handle('check-model-exists', async (event, modelName) => {
   return { exists: fs.existsSync(modelPath) }
 })
 
+ipcMain.handle('delete-model-file', async (event, modelName) => {
+  try {
+    const bgRemoverDir = isDev
+      ? path.join(__dirname, '../resources/bg-remover')
+      : path.join(process.resourcesPath, 'bg-remover')
+    const modelsDir = path.join(bgRemoverDir, 'models')
+    const modelPath = path.join(modelsDir, `${modelName}.onnx`)
+    if (fs.existsSync(modelPath)) {
+      fs.unlinkSync(modelPath)
+      return { success: true }
+    }
+    return { success: false, error: '模型文件不存在' }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
 ipcMain.handle('download-model', async (event, { url, modelName }) => {
   const bgRemoverDir = isDev
     ? path.join(__dirname, '../resources/bg-remover')

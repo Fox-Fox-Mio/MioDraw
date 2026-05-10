@@ -42,7 +42,6 @@
         "filter": [
           "python/**/*",
           "run_rembg.py",
-          "models/u2net.onnx",
           "models/u2netp.onnx"
         ]
       }
