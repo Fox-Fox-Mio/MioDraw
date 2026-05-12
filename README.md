@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./assets/logo.png" alt="MioDraw Logo"/>
+<img src="./assets/logo.png" alt="MioDraw Logo" width="80%"/>
 
 ### MioDraw：你的私人 AI 绘图与灵感优化本地工作站
 
