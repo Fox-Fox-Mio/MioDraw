@@ -59,6 +59,16 @@
             <el-option-group label="2:3 竖屏">
               <el-option label="1024 × 1536 (1K)" value="1024x1536" />
             </el-option-group>
+            <el-option-group label="4:3 横屏">
+              <el-option label="1024 × 768 (1K)" value="1024x768" />
+              <el-option label="1536 × 1152 (1.5K)" value="1536x1152" />
+              <el-option label="2048 × 1536 (2K)" value="2048x1536" />
+            </el-option-group>
+            <el-option-group label="3:4 竖屏">
+              <el-option label="768 × 1024 (1K)" value="768x1024" />
+              <el-option label="1152 × 1536 (1.5K)" value="1152x1536" />
+              <el-option label="1536 × 2048 (2K)" value="1536x2048" />
+            </el-option-group>
             <el-option-group label="16:9 横屏">
               <el-option label="1280 × 720 (1K)" value="1280x720" />
               <el-option label="2560 × 1440 (2K)" value="2560x1440" />
@@ -171,7 +181,7 @@
               text
               size="small"
               type="danger"
-              @click="selectedCharacter = null"
+              @click="genStore.selectedCharacterId = null"
             >
               移除
             </el-button>
@@ -518,6 +528,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useApiStore } from '@/stores/api'
 import { useGalleryStore } from '@/stores/gallery'
 import { useThemeStore } from '@/stores/theme'
@@ -562,7 +573,7 @@ const currentSiteModels = computed(() => {
 const imageSize = ref('1024x1024')
 const generateCount = ref(1)
 const concurrency = ref(1)
-const referenceImages = ref([]) // { id, dataUrl, file? }
+const { referenceImages } = storeToRefs(genStore)
 
 // 任务监控
 const currentTime = ref(Date.now())
@@ -795,7 +806,10 @@ function reusePrompt(img) {
 
 // ========== 角色卡选择 ==========
 
-const selectedCharacter = ref(null)
+const selectedCharacter = computed(() => {
+  if (!genStore.selectedCharacterId) return null
+  return characterStore.characters.find(c => c.id === genStore.selectedCharacterId) || null
+})
 const showCharSelectDialog = ref(false)
 
 function getCharImageUrl(ch, isThumb = false) {
@@ -805,9 +819,34 @@ function getCharImageUrl(ch, isThumb = false) {
 }
 
 function selectCharacter(ch) {
-  selectedCharacter.value = ch
+  genStore.selectedCharacterId = ch.id
   showCharSelectDialog.value = false
   ElMessage.success(`已选择角色「${ch.name}」`)
+}
+
+async function checkRefImageSize() {
+  let hasLargeImage = referenceImages.value.some(img => {
+    if (!img.dataUrl) return false
+    const base64Part = img.dataUrl.includes(',') ? img.dataUrl.split(',')[1] : img.dataUrl
+    return base64Part.length * 0.75 > 5 * 1024 * 1024
+  })
+
+  // 检查角色卡主设图
+  if (!hasLargeImage && selectedCharacter.value?.mainImageRelPath) {
+    try {
+      const dataUrl = await readImageAsBase64(selectedCharacter.value.mainImageRelPath)
+      if (dataUrl) {
+        const base64Part = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl
+        if (base64Part.length * 0.75 > 5 * 1024 * 1024) {
+          hasLargeImage = true
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (hasLargeImage) {
+    ElMessage.warning('部分参考图体积较大，发送时将自动压缩')
+  }
 }
 
 function buildPromptWithCharacter(originalPrompt) {
@@ -929,6 +968,7 @@ async function handleGenerate() {
     return
   }
 
+  await checkRefImageSize()
   const myToken = genStore.startBatch(generateCount.value)
   startTimeUpdate()
 
@@ -971,6 +1011,7 @@ async function handleGenerate() {
           apiType: config.apiType,
           customEndpoint: config.endpoint,
           quality: imageQuality.value,
+          timeout: themeStore.generateTimeoutSeconds * 1000,
         })
 
         if (genStore.isCancelled(myToken)) {
@@ -1031,10 +1072,20 @@ async function handleGenerate() {
         task.status = 'failed'
         task.endTime = Date.now()
         task.error = errMsg
-        addLog('error', `任务 #${task.id} 失败`, {
+        addLog('error', `任务 #${task.id} 失败: ${errMsg}`, {
           error: errMsg,
           status: err.response?.status,
           data: err.response?.data,
+          请求配置: {
+            站点: config.siteName,
+            地址: config.baseUrl,
+            模型: config.model,
+            接口类型: config.apiType,
+            自定义路径: config.endpoint || '(默认)',
+            图片尺寸: imageSize.value,
+            参考图数量: referenceImages.value.length,
+            角色卡: selectedCharacter.value?.name || '无',
+          },
         })
       }
     }
@@ -1094,6 +1145,7 @@ async function handleGenerateMultiBatch() {
     return
   }
 
+  await checkRefImageSize()
   // 快照当前配置（后续修改不影响已提交的批次）
   const batchPrompt = buildPromptWithCharacter(genStore.prompt)
   const batchConfig = { ...config }
@@ -1147,6 +1199,7 @@ async function runMultiBatch(batch, config, batchPrompt, batchRefImages, batchSi
           apiType: config.apiType,
           customEndpoint: config.endpoint,
           quality: batchQuality,
+          timeout: themeStore.generateTimeoutSeconds * 1000,
         })
 
         if (genStore.isMultiBatchStopped(batch.id)) {
@@ -1205,10 +1258,19 @@ async function runMultiBatch(batch, config, batchPrompt, batchRefImages, batchSi
         task.status = 'failed'
         task.endTime = Date.now()
         task.error = errMsg
-        addLog('error', `[批次] 任务 #${task.id} 失败`, {
+        addLog('error', `[批次] 任务 #${task.id} 失败: ${errMsg}`, {
           error: errMsg,
           status: err.response?.status,
           data: err.response?.data,
+          请求配置: {
+            站点: config.siteName,
+            地址: config.baseUrl,
+            模型: config.model,
+            接口类型: config.apiType,
+            自定义路径: config.endpoint || '(默认)',
+            图片尺寸: batchSize,
+            参考图数量: batchRefImages ? batchRefImages.length : 0,
+          },
         })
       }
     }

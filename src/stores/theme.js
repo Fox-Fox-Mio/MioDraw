@@ -15,6 +15,10 @@ export const useThemeStore = defineStore('theme', () => {
   const workflowCustomSound = ref('')
   const notificationVolume = ref(0.6)
   const multiBatchMode = ref(false)
+  const generateTimeoutSeconds = ref(360)
+  const workflowTimeoutSeconds = ref(250)
+  const refImageCompressEnabled = ref(true)
+  const refImageCompressThreshold = ref(5)
 
   async function init() {
     const saved = await loadValue('theme', null)
@@ -44,6 +48,11 @@ export const useThemeStore = defineStore('theme', () => {
       setVolume(notificationVolume.value)
     })
     multiBatchMode.value = await loadValue('multiBatchMode', false)
+    generateTimeoutSeconds.value = parseInt(await loadValue('generateTimeoutSeconds', '360')) || 360
+    workflowTimeoutSeconds.value = parseInt(await loadValue('workflowTimeoutSeconds', '250')) || 250
+    const savedCompressEnabled = await loadValue('refImageCompressEnabled', true)
+    refImageCompressEnabled.value = savedCompressEnabled !== false
+    refImageCompressThreshold.value = parseInt(await loadValue('refImageCompressThreshold', '5')) || 5
   }
 
   function applyTheme() {
@@ -126,11 +135,33 @@ export const useThemeStore = defineStore('theme', () => {
     saveValue('multiBatchMode', val)
   }
 
+  function setGenerateTimeout(val) {
+    generateTimeoutSeconds.value = val
+    saveValue('generateTimeoutSeconds', val.toString())
+  }
+
+  function setWorkflowTimeout(val) {
+    workflowTimeoutSeconds.value = val
+    saveValue('workflowTimeoutSeconds', val.toString())
+  }
+
+  function setRefImageCompressEnabled(val) {
+    refImageCompressEnabled.value = val
+    saveValue('refImageCompressEnabled', val)
+  }
+
+  function setRefImageCompressThreshold(val) {
+    refImageCompressThreshold.value = val
+    saveValue('refImageCompressThreshold', val.toString())
+  }
+
   return {
     isDark, bgImage, bgOpacity, imageDisplayMode, galleryDisplayMode, customSizes, layoutMode, multiBatchMode, workflowDisplayMode,
     workflowSoundEnabled, workflowCustomSound, notificationVolume,
     init, toggleTheme, setBgImage, setBgOpacity, setImageDisplayMode, setGalleryDisplayMode,
     addCustomSize, removeCustomSize, setLayoutMode, setMultiBatchMode, setWorkflowDisplayMode,
     setWorkflowSoundEnabled, setWorkflowCustomSound, setNotificationVolume,
+    generateTimeoutSeconds, workflowTimeoutSeconds, setGenerateTimeout, setWorkflowTimeout,
+    refImageCompressEnabled, refImageCompressThreshold, setRefImageCompressEnabled, setRefImageCompressThreshold,
   }
 })

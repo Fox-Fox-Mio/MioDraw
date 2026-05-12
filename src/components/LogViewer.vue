@@ -6,6 +6,10 @@
     top="5vh"
     :close-on-click-modal="true"
   >
+
+    <div class="log-tip">
+      ⚠️ 如果报错：This operation was aborted，是因图片生成时间过长被自动终止，请前往设置页面调整生成页超时时间
+    </div>
     <div class="log-toolbar">
       <el-radio-group v-model="logFilter" size="small">
         <el-radio-button value="all">全部</el-radio-button>
@@ -40,9 +44,9 @@
         <div class="log-message">{{ log.message }}</div>
         <div v-if="log.detail" class="log-detail">
           <button class="detail-toggle" @click="toggleExpand(log.id)">
-            {{ isExpanded(log.id) ? '收起详情' : '查看详情' }}
+            {{ isExpanded(log.id, log.level) ? '收起详情' : '查看详情' }}
           </button>
-          <pre v-if="isExpanded(log.id)" class="detail-content">{{ log.detail }}</pre>
+          <pre v-if="isExpanded(log.id, log.level)" class="detail-content">{{ log.detail }}</pre>
         </div>
       </div>
     </div>
@@ -249,8 +253,10 @@ function toggleExpand(id) {
   expandedIds.value = newSet
 }
 
-function isExpanded(id) {
-  return expandedIds.value.has(id)
+function isExpanded(id, level) {
+  const toggled = expandedIds.value.has(id)
+  // 错误级别默认展开，点击可收起；其他级别默认收起，点击可展开
+  return level === 'error' ? !toggled : toggled
 }
 
 function levelLabel(level) {
@@ -278,6 +284,17 @@ async function handleClear() {
 </script>
 
 <style scoped>
+.log-tip {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #b45309;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
 .log-toolbar {
   display: flex;
   align-items: center;

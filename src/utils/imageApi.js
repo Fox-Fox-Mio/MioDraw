@@ -1,19 +1,30 @@
 /**
  * 统一生图入口
  */
-export async function generateImage({ baseUrl, apiKey, model, prompt, referenceImages, size, apiType, customEndpoint, quality }) {
+import { useThemeStore } from '@/stores/theme'
+import { addLog } from '@/utils/logger'
+
+function getDefaultTimeout() {
+  try {
+    const val = localStorage.getItem('workflowTimeoutSeconds')
+    if (val) return parseInt(val) * 1000
+  } catch {}
+  return 250000
+}
+
+export async function generateImage({ baseUrl, apiKey, model, prompt, referenceImages, size, apiType, customEndpoint, quality, timeout }) {
   const firstRef = referenceImages && referenceImages.length > 0 ? referenceImages[0] : null
   const refData = firstRef ? (firstRef.file || firstRef.dataUrl) : null
 
   if (apiType === 'responses') {
-    return await generateViaResponses({ baseUrl, apiKey, model, prompt, referenceImages, size, customEndpoint, quality })
+    return await generateViaResponses({ baseUrl, apiKey, model, prompt, referenceImages, size, customEndpoint, quality, timeout })
   } else if (apiType === 'chat') {
-    return await generateViaChat({ baseUrl, apiKey, model, prompt, referenceImage: refData, size, customEndpoint })
+    return await generateViaChat({ baseUrl, apiKey, model, prompt, referenceImage: refData, size, customEndpoint, timeout })
   } else {
     if (refData) {
-      return await generateImageEdit({ baseUrl, apiKey, model, prompt, referenceImage: refData, size, customEndpoint })
+      return await generateImageEdit({ baseUrl, apiKey, model, prompt, referenceImage: refData, size, customEndpoint, timeout })
     }
-    return await generateImageDirect({ baseUrl, apiKey, model, prompt, size, customEndpoint })
+    return await generateImageDirect({ baseUrl, apiKey, model, prompt, size, customEndpoint, timeout })
   }
 }
 
@@ -21,61 +32,96 @@ export async function generateImage({ baseUrl, apiKey, model, prompt, referenceI
  * 通过 Electron 主进程发送 JSON 请求
  */
 async function proxyRequest(url, apiKey, body) {
-  console.log('===== 发送请求 =====')
-  console.log('URL:', url)
-  console.log('Body:', JSON.stringify(body, null, 2))
+  try {
+    console.log('===== 发送请求 =====')
+    console.log('URL:', url)
+    console.log('Body:', JSON.stringify(body, null, 2))
 
-  const response = await window.electronAPI.apiRequest({
-    url,
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-    timeout: 250000,
-  })
+    const response = await window.electronAPI.apiRequest({
+      url,
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      timeout: useThemeStore().generateTimeoutSeconds * 1000,
+    })
 
-  console.log('===== 收到响应 =====')
-  console.log('Status:', response.status)
-  console.log('Data:', typeof response.data === 'object' ? JSON.stringify(response.data, null, 2) : response.data)
+    console.log('===== 收到响应 =====')
+    console.log('Status:', response.status)
+    console.log('Data:', typeof response.data === 'object' ? JSON.stringify(response.data, null, 2) : response.data)
 
-  if (response.status >= 400) {
-    const errData = typeof response.data === 'object' ? response.data : { message: response.data }
-    const errMsg = errData.error?.message || errData.message || `HTTP ${response.status}`
-    throw { response: { status: response.status, data: errData }, message: errMsg }
+    if (response.status >= 400) {
+      const errData = typeof response.data === 'object' ? response.data : { message: response.data }
+      const errMsg = errData.error?.message || errData.message || `HTTP ${response.status}`
+      addLog('error', `[API] HTTP ${response.status} — ${errMsg}`, {
+        请求地址: url,
+        HTTP状态码: response.status,
+        错误信息: errMsg,
+        响应内容: errData,
+      })
+      throw { response: { status: response.status, data: errData }, message: errMsg }
+    }
+
+    return response.data
+  } catch (err) {
+    if (!err.response) {
+      addLog('error', `[API] 请求异常 — ${err.message || '未知错误'}`, {
+        请求地址: url,
+        错误类型: err.name || '未知',
+        错误信息: err.message || '未知错误',
+      })
+    }
+    throw err
   }
-
-  return response.data
 }
 
 /**
  * 通过 Electron 主进程发送 FormData 请求
  */
 async function proxyFormDataRequest(url, apiKey, fields, files) {
-  const response = await window.electronAPI.apiRequestFormData({
-    url,
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    fields,
-    files,
-    timeout: 250000,
-  })
+  try {
+    const response = await window.electronAPI.apiRequestFormData({
+      url,
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      fields,
+      files,
+      timeout: useThemeStore().generateTimeoutSeconds * 1000,
+    })
 
-  if (response.status >= 400) {
-    const errData = typeof response.data === 'object' ? response.data : { message: response.data }
-    const errMsg = errData.error?.message || errData.message || `HTTP ${response.status}`
-    throw { response: { status: response.status, data: errData }, message: errMsg }
+    if (response.status >= 400) {
+      const errData = typeof response.data === 'object' ? response.data : { message: response.data }
+      const errMsg = errData.error?.message || errData.message || `HTTP ${response.status}`
+      addLog('error', `[API] HTTP ${response.status} — ${errMsg}`, {
+        请求地址: url,
+        HTTP状态码: response.status,
+        错误信息: errMsg,
+        响应内容: errData,
+        文件数量: files ? files.length : 0,
+      })
+      throw { response: { status: response.status, data: errData }, message: errMsg }
+    }
+
+    return response.data
+  } catch (err) {
+    if (!err.response) {
+      addLog('error', `[API] FormData 请求异常 — ${err.message || '未知错误'}`, {
+        请求地址: url,
+        错误类型: err.name || '未知',
+        错误信息: err.message || '未知错误',
+      })
+    }
+    throw err
   }
-
-  return response.data
 }
 
 /**
  * 方式一：/images/generations
  */
-async function generateImageDirect({ baseUrl, apiKey, model, prompt, size, customEndpoint }) {
+async function generateImageDirect({ baseUrl, apiKey, model, prompt, size, customEndpoint, timeout }) {
   const url = `${baseUrl}${customEndpoint || '/images/generations'}`
   const body = {
     model,
@@ -84,14 +130,14 @@ async function generateImageDirect({ baseUrl, apiKey, model, prompt, size, custo
     size: size || '1024x1024',
     response_format: 'b64_json',
   }
-  return await proxyRequest(url, apiKey, body)
+  return await proxyRequest(url, apiKey, body, timeout)
 }
 
 /**
  * 方式一补充：/images/edits 带参考图
  */
-async function generateImageEdit({ baseUrl, apiKey, model, prompt, referenceImage, size, customEndpoint }) {
-  const url = `${baseUrl}${customEndpoint || '/chat/completions'}`
+async function generateImageEdit({ baseUrl, apiKey, model, prompt, referenceImage, size, customEndpoint, timeout }) {
+  const url = `${baseUrl}${customEndpoint || '/images/edits'}`
 
   const base64Data = await getImageBase64(referenceImage)
 
@@ -108,13 +154,13 @@ async function generateImageEdit({ baseUrl, apiKey, model, prompt, referenceImag
       mimeType: 'image/png',
       base64Data,
     },
-  ])
+  ], timeout)
 }
 
 /**
  * 方式二：/chat/completions
  */
-async function generateViaChat({ baseUrl, apiKey, model, prompt, referenceImage, size, customEndpoint }) {
+async function generateViaChat({ baseUrl, apiKey, model, prompt, referenceImage, size, customEndpoint, timeout }) {
   const url = `${baseUrl}${customEndpoint || '/chat/completions'}`
 
   const content = []
@@ -145,14 +191,14 @@ async function generateViaChat({ baseUrl, apiKey, model, prompt, referenceImage,
     stream: false,
   }
 
-  const data = await proxyRequest(url, apiKey, body)
+  const data = await proxyRequest(url, apiKey, body, timeout)
   return parseChatResponse(data)
 }
 
 /**
  * 方式三：/responses（支持多张参考图）
  */
-async function generateViaResponses({ baseUrl, apiKey, model, prompt, referenceImages, size, customEndpoint, quality }) {
+async function generateViaResponses({ baseUrl, apiKey, model, prompt, referenceImages, size, customEndpoint, quality, timeout }) {
   const url = `${baseUrl}${customEndpoint || '/responses'}`
 
   let input
@@ -202,7 +248,7 @@ async function generateViaResponses({ baseUrl, apiKey, model, prompt, referenceI
     ],
   }
 
-  const data = await proxyRequest(url, apiKey, body)
+  const data = await proxyRequest(url, apiKey, body, timeout)
   return parseResponsesApiData(data)
 }
 
@@ -315,6 +361,68 @@ function parseChatResponse(data) {
   return result
 }
 
+// ========== 参考图自动压缩（阈值5MB） ==========
+
+async function compressImageIfNeeded(dataUrl) {
+  const themeStore = useThemeStore()
+  if (!themeStore.refImageCompressEnabled) return dataUrl
+
+  const maxSizeBytes = themeStore.refImageCompressThreshold * 1024 * 1024
+  const base64Part = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl
+  const estimatedSize = base64Part.length * 0.75
+
+  if (estimatedSize <= maxSizeBytes) return dataUrl
+
+  console.log(`参考图体积过大 (${(estimatedSize / 1024 / 1024).toFixed(1)}MB)，自动压缩中...`)
+
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      let { width, height } = img
+
+      // 分辨率过大时先缩小，最大边不超过 2048
+      const MAX_DIM = 2048
+      if (width > MAX_DIM || height > MAX_DIM) {
+        const ratio = Math.min(MAX_DIM / width, MAX_DIM / height)
+        width = Math.round(width * ratio)
+        height = Math.round(height * ratio)
+      }
+
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, width, height)
+
+      // 逐级降低质量直到满足大小限制
+      const qualities = [0.85, 0.7, 0.5]
+      for (const q of qualities) {
+        const result = canvas.toDataURL('image/jpeg', q)
+        const resultSize = result.split(',')[1].length * 0.75
+        if (resultSize <= maxSizeBytes) {
+          console.log(`参考图压缩完成：${(resultSize / 1024 / 1024).toFixed(1)}MB (quality=${q}, ${width}×${height})`)
+          resolve(result)
+          return
+        }
+      }
+
+      // 质量降到 0.5 还不够，进一步缩小分辨率
+      const SMALLER_DIM = 1024
+      const ratio2 = Math.min(SMALLER_DIM / width, SMALLER_DIM / height)
+      if (ratio2 < 1) {
+        canvas.width = Math.round(width * ratio2)
+        canvas.height = Math.round(height * ratio2)
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      }
+      const fallback = canvas.toDataURL('image/jpeg', 0.7)
+      console.log(`参考图压缩完成（二次缩小）：${(fallback.split(',')[1].length * 0.75 / 1024 / 1024).toFixed(1)}MB (${canvas.width}×${canvas.height})`)
+      resolve(fallback)
+    }
+    img.onerror = () => resolve(dataUrl) // 压缩失败用原图
+    img.src = dataUrl.startsWith('data:') ? dataUrl : `data:image/png;base64,${dataUrl}`
+  })
+}
+
 // ========== 工具函数 ==========
 
 function handleImageUrl(url) {
@@ -336,23 +444,28 @@ function extractMarkdownImages(text) {
 }
 
 async function getImageBase64(image) {
+  let dataUrl
   if (image instanceof File) {
-    return await fileToBase64(image)
+    dataUrl = await fileToBase64DataUrl(image)
+  } else if (typeof image === 'string') {
+    dataUrl = image.startsWith('data:') ? image : `data:image/png;base64,${image}`
+  } else {
+    return ''
   }
-  if (typeof image === 'string') {
-    return image.includes(',') ? image.split(',')[1] : image
-  }
-  return ''
+  const compressed = await compressImageIfNeeded(dataUrl)
+  return compressed.includes(',') ? compressed.split(',')[1] : compressed
 }
 
 async function getImageDataUrl(image) {
+  let dataUrl
   if (image instanceof File) {
-    return await fileToBase64DataUrl(image)
+    dataUrl = await fileToBase64DataUrl(image)
+  } else if (typeof image === 'string') {
+    dataUrl = image.startsWith('data:') ? image : `data:image/png;base64,${image}`
+  } else {
+    return ''
   }
-  if (typeof image === 'string') {
-    return image.startsWith('data:') ? image : `data:image/png;base64,${image}`
-  }
-  return ''
+  return await compressImageIfNeeded(dataUrl)
 }
 
 function fileToBase64(file) {

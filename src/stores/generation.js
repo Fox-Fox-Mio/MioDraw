@@ -12,6 +12,8 @@ export const useGenerationStore = defineStore('generation', () => {
 
   // 表单状态（切换页面也保留）
   const prompt = ref('')
+  const selectedCharacterId = ref(null)
+  const referenceImages = ref([]) // { id, dataUrl, file? }
 
   // === 累计任务模式 ===
   const batches = ref([])
@@ -146,7 +148,7 @@ export const useGenerationStore = defineStore('generation', () => {
   return {
     isGenerating, tasks, batchStartTime, batchEndTime,
     generationToken, completedCount, totalCount,
-    prompt,
+    prompt, selectedCharacterId, referenceImages,
     taskStats, hasSuccess,
     startBatch, endBatch, stopBatch, isCancelled,
     batches, totalRunningCount, hasRunningBatches,

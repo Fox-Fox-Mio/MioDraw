@@ -330,6 +330,55 @@
           @update:model-value="themeStore.setMultiBatchMode"
         />
       </div>
+      <div class="setting-item">
+        <div class="setting-info">
+          <span class="setting-label">生成页超时时间</span>
+          <span class="setting-desc">生成页面单次生图请求的超时时间：{{ themeStore.generateTimeoutSeconds }} 秒（{{ (themeStore.generateTimeoutSeconds / 60).toFixed(1) }} 分钟）</span>
+        </div>
+        <el-slider
+          :model-value="themeStore.generateTimeoutSeconds"
+          @update:model-value="themeStore.setGenerateTimeout"
+          :min="120" :max="600" :step="10"
+          :marks="{ 120: '2分', 300: '5分', 420: '7分', 600: '10分' }"
+          style="width: 240px"
+        />
+      </div>
+      <div class="setting-item">
+        <div class="setting-info">
+          <span class="setting-label">工作流超时时间</span>
+          <span class="setting-desc">工作流中单次生图请求的超时时间：{{ themeStore.workflowTimeoutSeconds }} 秒（{{ (themeStore.workflowTimeoutSeconds / 60).toFixed(1) }} 分钟）</span>
+        </div>
+        <el-slider
+          :model-value="themeStore.workflowTimeoutSeconds"
+          @update:model-value="themeStore.setWorkflowTimeout"
+          :min="120" :max="600" :step="10"
+          :marks="{ 120: '2分', 300: '5分', 420: '7分', 600: '10分' }"
+          style="width: 240px"
+        />
+      </div>
+      <div class="setting-item">
+        <div class="setting-info">
+          <span class="setting-label">参考图自动压缩</span>
+          <span class="setting-desc">开启后，超过阈值的参考图在发送前自动压缩，避免请求失败</span>
+        </div>
+        <el-switch
+          :model-value="themeStore.refImageCompressEnabled"
+          @update:model-value="themeStore.setRefImageCompressEnabled"
+        />
+      </div>
+      <div v-if="themeStore.refImageCompressEnabled" class="setting-item">
+        <div class="setting-info">
+          <span class="setting-label">压缩阈值</span>
+          <span class="setting-desc">超过 {{ themeStore.refImageCompressThreshold }} MB 的参考图会被自动压缩</span>
+        </div>
+        <el-slider
+          :model-value="themeStore.refImageCompressThreshold"
+          @update:model-value="themeStore.setRefImageCompressThreshold"
+          :min="1" :max="10" :step="1"
+          :marks="{ 1: '1MB', 3: '3', 5: '5', 8: '8', 10: '10MB' }"
+          style="width: 240px"
+        />
+      </div>
     </div>
 
     <!-- 工作流提示音 -->

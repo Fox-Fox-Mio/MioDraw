@@ -140,7 +140,7 @@ ipcMain.handle('api-request', async (event, options) => {
       data,
     }
   } catch (err) {
-    throw { message: err.message || '请求失败' }
+    throw new Error(err.message || '请求失败')
   }
 })
 
@@ -299,7 +299,7 @@ ipcMain.handle('api-request-formdata', async (event, options) => {
       data,
     }
   } catch (err) {
-    throw { message: err.message || '请求失败' }
+    throw new Error(err.message || '请求失败')
   }
 })
 
@@ -321,9 +321,9 @@ ipcMain.handle('download-image', async (event, url) => {
     }
   } catch (err) {
     if (err.name === 'AbortError') {
-      throw { message: '图片下载超时（60秒）' }
+      throw new Error('图片下载超时（60秒）')
     }
-    throw { message: err.message || '图片下载失败' }
+    throw new Error(err.message || '图片下载失败')
   }
 })
 
@@ -749,7 +749,7 @@ ipcMain.handle('download-model', async (event, { url, modelName }) => {
     if (fs.existsSync(tempPath)) {
       try { fs.unlinkSync(tempPath) } catch {}
     }
-    throw { message: err.message || '下载失败' }
+    throw new Error(err.message || '下载失败')
   }
 })
 
