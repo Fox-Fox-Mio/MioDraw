@@ -6,6 +6,13 @@
         <div class="dl-progress-header">
           <el-icon class="is-loading"><Loading /></el-icon>
           <span class="dl-progress-title">正在下载模型 ({{ downloadStore.currentIndex + 1 }}/{{ downloadStore.totalCount }})</span>
+          <el-button
+            text size="small" type="danger"
+            class="dl-cancel-btn"
+            @click="handleCancel"
+          >
+            取消
+          </el-button>
         </div>
         <div class="dl-progress-model">{{ downloadStore.currentModelName }}</div>
         <el-progress
@@ -39,6 +46,19 @@
 <script setup>
 import { useModelDownloadStore } from '@/stores/modelDownload'
 import { Loading, CircleCheck, Close } from '@element-plus/icons-vue'
+import { ElMessageBox, ElMessage } from 'element-plus'
+
+async function handleCancel() {
+  try {
+    await ElMessageBox.confirm(
+      '确定要取消下载吗？已下载的部分将被清除。',
+      '取消下载',
+      { confirmButtonText: '取消下载', cancelButtonText: '继续', type: 'warning' }
+    )
+    downloadStore.cancelDownload()
+    ElMessage.info('下载已取消')
+  } catch { /* 继续下载 */ }
+}
 
 const downloadStore = useModelDownloadStore()
 </script>
@@ -104,5 +124,21 @@ const downloadStore = useModelDownloadStore()
 .slide-down-leave-to {
   opacity: 0;
   transform: translateY(-20px);
+}
+
+.dl-cancel-btn {
+  margin-left: auto;
+  font-weight: 600 !important;
+}
+
+.dl-cancel-btn:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1) !important;
+  border-color: #ef4444 !important;
+  color: #ef4444 !important;
+}
+
+.dl-cancel-btn:not(:disabled):hover {
+  background: #ef4444 !important;
+  color: #fff !important;
 }
 </style>

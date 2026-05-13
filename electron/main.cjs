@@ -717,8 +717,17 @@ ipcMain.handle('download-model', async (event, { url, modelName }) => {
   const modelPath = path.join(modelsDir, `${modelName}.onnx`)
   const tempPath = modelPath + '.tmp'
 
+  const controller = new AbortController()
+
+  // 监听取消信号
+  const cancelHandler = () => controller.abort()
+  ipcMain.once(`cancel-download-${modelName}`, cancelHandler)
+
   try {
-    const response = await net.fetch(url)
+    const response = await net.fetch(url, {
+      signal: controller.signal,
+      headers: { 'Cache-Control': 'no-cache' },
+    })
 
     if (response.status >= 400) {
       throw new Error(`HTTP ${response.status}`)
@@ -726,30 +735,39 @@ ipcMain.handle('download-model', async (event, { url, modelName }) => {
 
     const contentLength = parseInt(response.headers.get('content-length') || '0', 10)
     const reader = response.body.getReader()
-    const chunks = []
     let downloaded = 0
+
+    // 边下载边写入临时文件
+    const writeStream = fs.createWriteStream(tempPath)
 
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-      chunks.push(value)
+      writeStream.write(Buffer.from(value))
       downloaded += value.length
-      // 发送进度到渲染进程
       event.sender.send('model-download-progress', { modelName, downloaded, total: contentLength })
     }
 
-    // 拼接并写入文件
-    const buffer = Buffer.concat(chunks.map(c => Buffer.from(c)))
-    fs.writeFileSync(tempPath, buffer)
+    writeStream.end()
+    await new Promise((resolve, reject) => {
+      writeStream.on('finish', resolve)
+      writeStream.on('error', reject)
+    })
+
     fs.renameSync(tempPath, modelPath)
 
+    ipcMain.removeListener(`cancel-download-${modelName}`, cancelHandler)
     return { success: true }
   } catch (err) {
+    ipcMain.removeListener(`cancel-download-${modelName}`, cancelHandler)
     // 清理临时文件
     if (fs.existsSync(tempPath)) {
       try { fs.unlinkSync(tempPath) } catch {}
     }
-    throw new Error(err.message || '下载失败')
+    if (err.name === 'AbortError') {
+      return { success: false, canceled: true }
+    }
+    throw { message: err.message || '下载失败' }
   }
 })
 

@@ -34,15 +34,21 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
     (bytesTotal.value / 1024 / 1024).toFixed(1)
   )
 
+  let currentDownloadPromise = null
+  const isCanceled = ref(false)
+
   async function startDownload(models, source) {
     isDownloading.value = true
     showComplete.value = false
+    isCanceled.value = false
     totalCount.value = models.length
     currentIndex.value = 0
 
     const urls = MODEL_URLS[source] || MODEL_URLS.mirror
 
     for (let i = 0; i < models.length; i++) {
+      if (isCanceled.value) break
+
       currentIndex.value = i
       currentModelName.value = models[i]
       bytesDownloaded.value = 0
@@ -52,7 +58,7 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
       if (!url) continue
 
       try {
-        await window.electronAPI.downloadModel({
+        currentDownloadPromise = window.electronAPI.downloadModel({
           url,
           modelName: models[i],
           onProgress: (downloaded, total) => {
@@ -60,14 +66,28 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
             bytesTotal.value = total
           },
         })
+        const result = await currentDownloadPromise
+        if (result?.canceled) {
+          break
+        }
       } catch (err) {
+        if (isCanceled.value) break
         console.error(`模型 ${models[i]} 下载失败:`, err)
-        // 继续下载下一个
       }
     }
 
+    currentDownloadPromise = null
     isDownloading.value = false
-    showComplete.value = true
+    if (!isCanceled.value) {
+      showComplete.value = true
+    }
+  }
+
+  function cancelDownload() {
+    isCanceled.value = true
+    if (currentModelName.value) {
+      window.electronAPI.cancelModelDownload(currentModelName.value)
+    }
   }
 
   function dismiss() {
@@ -79,6 +99,6 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
     currentModelName, currentIndex, totalCount,
     bytesDownloaded, bytesTotal,
     percentage, downloadedMB, totalMB,
-    startDownload, dismiss,
+    startDownload, dismiss, cancelDownload, isCanceled,
   }
 })

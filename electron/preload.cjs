@@ -27,7 +27,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteModelFile: (modelName) => ipcRenderer.invoke('delete-model-file', modelName),
   downloadModel: (options) => {
     const { url, modelName, onProgress } = options
-    // 监听进度
     const progressHandler = (e, data) => {
       if (data.modelName === modelName && onProgress) {
         onProgress(data.downloaded, data.total)
@@ -38,6 +37,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('download-model', { url, modelName }).finally(() => {
       ipcRenderer.removeListener('model-download-progress', progressHandler)
     })
+  },
+  cancelModelDownload: (modelName) => {
+    ipcRenderer.send(`cancel-download-${modelName}`)
   },
 
   // 文档解析
